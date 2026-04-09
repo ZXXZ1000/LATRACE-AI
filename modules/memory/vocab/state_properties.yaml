@@ -1,0 +1,50 @@
+version: v1
+properties:
+  - name: mood
+    description: "情绪状态"
+    mvp: true
+    value_type: enum
+    allowed_values: ["happy", "sad", "angry", "neutral", "anxious", "_other"]
+    allow_raw_value: true
+
+  - name: stress_level
+    description: "压力水平"
+    value_type: enum
+    allowed_values: ["low", "medium", "high", "_other"]
+    allow_raw_value: true
+
+  - name: energy_level
+    description: "精力状态"
+    value_type: enum
+    allowed_values: ["low", "normal", "high", "_other"]
+    allow_raw_value: true
+
+  - name: sleep_quality
+    description: "睡眠质量"
+    value_type: enum
+    allowed_values: ["good", "ok", "poor", "_other"]
+    allow_raw_value: true
+
+  - name: location
+    description: "当前位置"
+    value_type: string
+
+  - name: job_status
+    description: "工作状态"
+    mvp: true
+    value_type: enum
+    allowed_values: ["employed", "unemployed", "job_seeking", "retired", "_other"]
+    allow_raw_value: true
+
+  - name: relationship_status
+    description: "关系状态"
+    mvp: true
+    value_type: enum
+    allowed_values: ["single", "partnered", "married", "divorced", "_other"]
+    allow_raw_value: true
+
+  - name: health
+    description: "健康状况"
+    value_type: enum
+    allowed_values: ["healthy", "sick", "recovering", "_other"]
+    allow_raw_value: true

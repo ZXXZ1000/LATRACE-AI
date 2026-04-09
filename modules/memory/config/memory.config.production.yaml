@@ -1,0 +1,25 @@
+memory:
+  api:
+    auth:
+      enabled: true
+      header: X-API-Token
+      token: ${MEMORY_API_TOKEN}
+      tenant_id: ${MEMORY_API_TENANT_ID}
+      jwt:
+        jwks_url: ${MEMORY_API_JWKS_URL}
+        audience: ${MEMORY_API_JWT_AUD}
+        issuer: ${MEMORY_API_JWT_ISS}
+        tenant_claim: tenant_id
+        jwks_cache_seconds: 300
+      signing:
+        required: true
+        header: X-Signature
+        timestamp_header: X-Signature-Ts
+        max_skew_seconds: 300
+        default_secret: ${MEMORY_API_SIGNING_SECRET}
+    limits:
+      rate_limit_enabled: true
+      requests_per_minute: 600
+      burst: 120
+      high_cost_timeout_seconds: 20
+      max_request_bytes: 10485760  # 10 MiB cap to protect ingress

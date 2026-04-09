@@ -1,0 +1,41 @@
+meta:
+  id: 2026-03-13_dialog_v2_knowledge_0_6_working_baseline
+  owner: zhaoxiang
+  purpose: working baseline for dialog_v2 outer-fusion tuning after lowering knowledge weight
+  datasets:
+    - showcase_pack_v1_fixed_state
+    - conv-26
+  status: working_baseline
+  baseline_type: code_hardcoded
+
+overrides:
+  code.modules.memory.retrieval._DIALOG_V2_DEFAULT_WEIGHTS.knowledge: 0.6
+  memory.llm.qa.provider: dashscope
+  memory.llm.qa.model: qwen-plus
+  memory.llm.judge.provider: openrouter
+  memory.llm.judge.model: openai/gpt-4o-mini
+  benchmark.retrieval.topk: 20
+  benchmark.isolation.strategy: unique_tenant_per_fresh_run
+
+results:
+  showcase_fixed_state_previous_accuracy: "15/19"
+  showcase_fixed_state_current_accuracy: "19/19"
+  showcase_fixed_state_report: benchmark/showcase/outputs/showcase_axis_knowledge_0_6_repro_local/showcase_report.md
+  showcase_fixed_state_debug: benchmark/showcase/outputs/showcase_axis_knowledge_0_6_repro_local/showcase_debug.md
+  conv26_accuracy: "158/199"
+  conv26_accuracy_ratio: 0.7939698492462312
+  conv26_j_overall_binary: 0.8277463246213246
+  conv26_report: benchmark/outputs/run_067_20260313_015353_conv-26_local_kg06_top20_c8/report_conv-26.md
+  conv26_aggregate: benchmark/outputs/run_067_20260313_015353_conv-26_local_kg06_top20_c8/aggregate_conv-26.json
+  conv26_per_category_accuracy:
+    Multi-Hop: 0.8125
+    Temporal: 0.8918918918918919
+    Open-Domain: 0.6923076923076923
+    Single-Hop: 0.9142857142857143
+    Adversarial: 0.5531914893617021
+  notes: |
+    This is the current working baseline for the next round of outer-fusion tuning.
+    The change is intentionally hardcoded in retrieval.py instead of being promoted to
+    memory.config.yaml because the search is still in progress. The fixed-state showcase
+    run reached 19/19, and the larger conv-26 run reached 158/199 with judge overall
+    binary 0.8277. Subsequent experiments should compare against this baseline first.

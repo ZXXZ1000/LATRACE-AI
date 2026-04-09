@@ -1,0 +1,211 @@
+version: v1
+paths:
+  - path: _uncategorized/general
+    description: "未分类话题（兜底）"
+  - path: _uncategorized/learning
+    description: "未分类学习话题"
+  - path: _uncategorized/lifestyle
+    description: "未分类生活话题"
+  - path: _uncategorized/work
+    description: "未分类工作话题"
+  - path: _uncategorized/high_entropy
+    description: "高熵/杂谈（兜底）"
+
+  - path: learning/general
+    description: "学习/教育（通用）"
+  - path: learning/programming
+    description: "学习编程/软件开发"
+  - path: learning/language
+    description: "语言学习"
+  - path: learning/reading
+    description: "阅读/读书"
+  - path: learning/mentorship
+    description: "导师辅导/指导/陪跑"
+
+  - path: work/project
+    description: "工作/项目进展"
+  - path: work/meeting
+    description: "会议/沟通"
+  - path: work/task
+    description: "任务/待办"
+  - path: work/career
+    description: "职业/求职/晋升"
+  - path: work/office
+    description: "办公与流程"
+  - path: work/business
+    description: "创业/生意/经营"
+
+  - path: finance/budget
+    description: "预算/支出/储蓄"
+  - path: finance/investment
+    description: "投资/理财"
+  - path: finance/stock
+    description: "股票/基金"
+  - path: finance/crypto
+    description: "数字货币/区块链"
+  - path: finance/tax
+    description: "税务/报销"
+
+  - path: health/mental
+    description: "心理/情绪/压力"
+  - path: health/mental/anxiety
+    description: "焦虑/不安"
+  - path: health/mental/depression
+    description: "抑郁/低落"
+  - path: health/mental/stress
+    description: "压力/崩溃"
+  - path: health/mental/loneliness
+    description: "孤独/寂寞"
+  - path: health/mental/therapy
+    description: "心理咨询/治疗"
+  - path: health/mental/mindfulness
+    description: "正念/冥想/放松"
+  - path: health/physical
+    description: "身体状态"
+  - path: health/medical
+    description: "就医/诊疗"
+  - path: health/fitness
+    description: "健身/运动"
+  - path: health/sleep
+    description: "睡眠/作息"
+
+  - path: relationship/partner
+    description: "亲密关系/伴侣"
+  - path: relationship/dating
+    description: "约会/暧昧/表白"
+  - path: relationship/breakup
+    description: "分手/失恋"
+  - path: relationship/conflict
+    description: "争吵/矛盾/冷战"
+  - path: relationship/communication
+    description: "沟通/表达/理解"
+  - path: relationship/friend
+    description: "朋友/同事关系"
+  - path: relationship/family
+    description: "家庭关系"
+  - path: family/parenting
+    description: "育儿/亲子"
+  - path: family/children
+    description: "孩子相关"
+
+  - path: pet/cat
+    description: "养猫/猫咪"
+  - path: pet/dog
+    description: "养狗/狗狗"
+  - path: pet/care
+    description: "宠物护理/就医"
+
+  - path: travel/domestic
+    description: "国内旅行"
+  - path: travel/international
+    description: "国际旅行"
+  - path: travel/japan
+    description: "日本旅行相关"
+  - path: travel/visa
+    description: "签证/入境"
+  - path: travel/flight
+    description: "机票/航班"
+  - path: travel/hotel
+    description: "酒店/住宿"
+  - path: travel/itinerary
+    description: "行程规划"
+
+  - path: food/cooking
+    description: "做饭/烹饪"
+  - path: food/restaurant
+    description: "外出就餐/餐厅"
+  - path: food/diet
+    description: "饮食管理/减脂"
+  - path: food/coffee
+    description: "咖啡/饮品"
+
+  - path: entertainment/movie
+    description: "电影/影视"
+  - path: entertainment/music
+    description: "音乐/演出"
+  - path: entertainment/game
+    description: "游戏/电竞"
+  - path: entertainment/anime
+    description: "动漫/番剧"
+  - path: entertainment/show
+    description: "综艺/节目"
+  - path: entertainment/dance
+    description: "舞蹈/舞台表演"
+
+  - path: sports/gym
+    description: "健身房/器械"
+  - path: sports/running
+    description: "跑步/步行"
+  - path: sports/ball
+    description: "球类运动"
+  - path: sports/outdoor
+    description: "户外运动"
+
+  - path: hobby/photography
+    description: "摄影"
+  - path: hobby/art
+    description: "绘画/手工"
+  - path: hobby/collect
+    description: "收藏/模型"
+
+  - path: shopping/clothes
+    description: "服饰/穿搭"
+  - path: shopping/electronics
+    description: "数码/电子产品"
+  - path: shopping/grocery
+    description: "日用品/超市"
+
+  - path: home/rent
+    description: "租房/房租"
+  - path: home/moving
+    description: "搬家/装修"
+  - path: home/maintenance
+    description: "居家维护/维修"
+  - path: home/decoration
+    description: "家居布置"
+
+  - path: transport/commute
+    description: "通勤/出行"
+  - path: transport/car
+    description: "汽车/驾驶"
+  - path: transport/public
+    description: "公共交通"
+
+  - path: schedule/appointment
+    description: "预约/提醒"
+  - path: schedule/plan
+    description: "计划/安排"
+  - path: schedule/attendance
+    description: "出席/考勤"
+
+  - path: social/event
+    description: "社交活动/聚会"
+  - path: social/volunteering
+    description: "志愿/公益/社区服务"
+  - path: social/community
+    description: "社区/互助/邻里关系"
+
+  - path: life/diary
+    description: "日记/自我记录"
+  - path: life/milestone
+    description: "重要事件/里程碑"
+  - path: life/decision
+    description: "选择/决策"
+  - path: life/values
+    description: "价值观/人生观"
+  - path: life/leisure
+    description: "休闲/放松/消遣"
+
+  - path: goals/habit
+    description: "习惯养成"
+  - path: goals/productivity
+    description: "效率/自我管理"
+  - path: goals/motivation
+    description: "动力/坚持"
+  - path: goals/self_growth
+    description: "自我提升/成长"
+
+  - path: tech/device
+    description: "设备/硬件"
+  - path: tech/software
+    description: "软件/应用"

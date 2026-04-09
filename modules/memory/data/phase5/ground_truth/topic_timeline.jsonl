@@ -1,0 +1,1 @@
+{"query_id":"tt-001","topic":"日本旅行","user_tokens":["u:1"],"expected_event_ids":["evt-1","evt-2"],"expected_order":["evt-1","evt-2"],"time_range":{"start":"2024-01-01"}}

@@ -1,0 +1,46 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.cache/
+.venv/
+venv/
+
+# Local workflow notes
+/AGENTS.md
+/CLAUDE.md
+/PROCESS.md
+/docs/internal/
+# Local memory design notes and working docs
+modules/memory/docs/
+modules/memory/Devlope_PROCESS.md
+modules/memory/Module_Arc.md
+modules/memory/PROCESS.md
+modules/memory/README.md
+modules/control_agent/
+modules/memorization_agent/
+modules/shared/
+
+# Local secrets
+.env
+.env.bak
+modules/memory/config/.env
+modules/memory/config/.env.bak
+
+# Runtime and benchmark outputs
+modules/memory/outputs/
+modules/memory/config/parameter_optimization/outputs/
+benchmark/
+reference/
+modules/media_graph_compiler/docs/
+modules/media_graph_compiler/README.md
+modules/media_graph_compiler/PROCESS.md
+
+# Local databases and logs
+*.db
+*.sqlite
+*.sqlite3
+*.log

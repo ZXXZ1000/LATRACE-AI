@@ -1,0 +1,538 @@
+version: v1
+rules:
+  - name: "地点强制映射_日本旅行"
+    priority: 100
+    match:
+      places: ["Japan", "日本", "Tokyo", "东京", "大阪", "京都"]
+      keywords_any: ["旅行", "travel", "机票", "酒店", "行程"]
+    output:
+      topic_path: "travel/japan"
+      tags: ["travel", "japan"]
+
+  - name: "学习_编程"
+    priority: 95
+    match:
+      keywords_any: ["编程", "代码", "开发", "调试", "爬虫", "Python", "Java", "JS", "programming", "coding", "code", "debug", "python", "java", "javascript", "js"]
+    output:
+      topic_path: "learning/programming"
+      tags: ["learning", "programming"]
+
+  - name: "学习_语言"
+    priority: 90
+    match:
+      keywords_any: ["英语", "日语", "韩语", "语言", "单词", "语法", "口语", "language", "english", "japanese", "korean", "vocabulary", "grammar"]
+    output:
+      topic_path: "learning/language"
+      tags: ["learning", "language"]
+
+  - name: "学习_阅读"
+    priority: 85
+    match:
+      keywords_any: ["读书", "阅读", "书", "小说", "书单", "reading", "book", "novel"]
+    output:
+      topic_path: "learning/reading"
+      tags: ["learning", "reading"]
+
+  - name: "学习_导师"
+    priority: 82
+    match:
+      keywords_any: ["导师", "指导", "mentorship", "mentor", "辅导", "陪跑", "coaching", "tutoring"]
+    output:
+      topic_path: "learning/mentorship"
+      tags: ["learning", "mentorship"]
+
+  - name: "工作_项目"
+    priority: 85
+    match:
+      keywords_any: ["项目", "需求", "迭代", "上线", "交付", "里程碑", "project", "roadmap", "milestone", "release", "launch"]
+    output:
+      topic_path: "work/project"
+      tags: ["work", "project"]
+
+  - name: "工作_会议"
+    priority: 80
+    match:
+      keywords_any: ["会议", "对齐", "汇报", "复盘", "评审", "meeting", "sync", "standup", "review", "retro", "presentation"]
+    output:
+      topic_path: "work/meeting"
+      tags: ["work", "meeting"]
+
+  - name: "工作_任务"
+    priority: 80
+    match:
+      keywords_any: ["任务", "待办", "跟进", "deadline", "DDL", "task", "todo", "follow up", "ticket"]
+    output:
+      topic_path: "work/task"
+      tags: ["work", "task"]
+
+  - name: "工作_职业"
+    priority: 75
+    match:
+      keywords_any: ["求职", "面试", "跳槽", "晋升", "offer", "职业", "job", "career", "interview", "resume", "hiring", "promotion", "layoff", "job loss"]
+    output:
+      topic_path: "work/career"
+      tags: ["work", "career"]
+
+  - name: "工作_生意"
+    priority: 74
+    match:
+      keywords_any: ["创业", "生意", "经营", "business", "startup", "entrepreneurship", "店铺", "开店", "推广", "marketing", "promotion", "广告", "store", "retail", "campaign"]
+    output:
+      topic_path: "work/business"
+      tags: ["work", "business", "entrepreneurship", "marketing", "retail"]
+
+  - name: "财务_预算"
+    priority: 80
+    match:
+      keywords_any: ["预算", "支出", "花费", "储蓄", "记账", "budget", "expense", "spending", "saving", "cost"]
+    output:
+      topic_path: "finance/budget"
+      tags: ["finance", "budget"]
+
+  - name: "财务_股票"
+    priority: 78
+    match:
+      keywords_any: ["股票", "基金", "A股", "港股", "美股", "stock", "stocks", "equity", "fund", "etf"]
+    output:
+      topic_path: "finance/stock"
+      tags: ["finance", "stock"]
+
+  - name: "财务_加密"
+    priority: 75
+    match:
+      keywords_any: ["比特币", "BTC", "ETH", "加密", "区块链", "crypto", "bitcoin", "ethereum", "blockchain"]
+    output:
+      topic_path: "finance/crypto"
+      tags: ["finance", "crypto"]
+
+  - name: "健康_心理"
+    priority: 70
+    match:
+      keywords_any: ["情绪", "难受", "不开心", "心情", "mood", "emotion", "feelings"]
+    output:
+      topic_path: "health/mental"
+      tags: ["health", "mental"]
+
+  - name: "健康_焦虑"
+    priority: 85
+    match:
+      keywords_any: ["焦虑", "不安", "panic", "慌", "anxious", "anxiety"]
+    output:
+      topic_path: "health/mental/anxiety"
+      tags: ["health", "mental", "anxiety"]
+
+  - name: "健康_抑郁"
+    priority: 85
+    match:
+      keywords_any: ["抑郁", "低落", "没意义", "消沉", "depressed", "depression"]
+    output:
+      topic_path: "health/mental/depression"
+      tags: ["health", "mental", "depression"]
+
+  - name: "健康_压力"
+    priority: 85
+    match:
+      keywords_any: ["压力", "崩溃", "受不了", "顶不住", "stress", "stressed", "overwhelmed"]
+    output:
+      topic_path: "health/mental/stress"
+      tags: ["health", "mental", "stress"]
+
+  - name: "健康_孤独"
+    priority: 85
+    match:
+      keywords_any: ["孤独", "寂寞", "没人陪", "好孤单", "lonely", "loneliness"]
+    output:
+      topic_path: "health/mental/loneliness"
+      tags: ["health", "mental", "loneliness"]
+
+  - name: "心理_咨询"
+    priority: 85
+    match:
+      keywords_any: ["心理咨询", "心理医生", "therapy", "咨询师", "counselor"]
+    output:
+      topic_path: "health/mental/therapy"
+      tags: ["health", "mental", "therapy"]
+
+  - name: "心理_正念"
+    priority: 82
+    match:
+      keywords_any: ["正念", "冥想", "呼吸练习", "放松", "mindfulness", "meditation"]
+    output:
+      topic_path: "health/mental/mindfulness"
+      tags: ["health", "mental", "mindfulness"]
+
+  - name: "健康_健身"
+    priority: 80
+    match:
+      keywords_any: ["健身", "训练", "运动", "跑步", "撸铁", "fitness", "workout", "exercise", "training"]
+    output:
+      topic_path: "health/fitness"
+      tags: ["health", "fitness"]
+
+  - name: "健康_睡眠"
+    priority: 75
+    match:
+      keywords_any: ["睡眠", "失眠", "熬夜", "作息", "sleep", "insomnia", "rest"]
+    output:
+      topic_path: "health/sleep"
+      tags: ["health", "sleep"]
+
+  - name: "健康_就医"
+    priority: 75
+    match:
+      keywords_any: ["医生", "检查", "手术", "药", "看病", "doctor", "hospital", "surgery", "medicine", "checkup"]
+    output:
+      topic_path: "health/medical"
+      tags: ["health", "medical"]
+
+  - name: "关系_伴侣"
+    priority: 78
+    match:
+      keywords_any: ["男朋友", "女朋友", "恋人", "恋爱", "分手", "partner", "relationship", "boyfriend", "girlfriend"]
+    output:
+      topic_path: "relationship/partner"
+      tags: ["relationship", "partner"]
+
+  - name: "关系_约会"
+    priority: 80
+    match:
+      keywords_any: ["约会", "暧昧", "表白", "相亲", "date", "dating", "crush", "confession"]
+    output:
+      topic_path: "relationship/dating"
+      tags: ["relationship", "dating"]
+
+  - name: "关系_分手"
+    priority: 85
+    match:
+      keywords_any: ["分手", "失恋", "复合", "冷淡", "breakup", "break up", "divorce"]
+    output:
+      topic_path: "relationship/breakup"
+      tags: ["relationship", "breakup"]
+
+  - name: "关系_矛盾"
+    priority: 80
+    match:
+      keywords_any: ["吵架", "矛盾", "冷战", "争执", "conflict", "argument", "fight"]
+    output:
+      topic_path: "relationship/conflict"
+      tags: ["relationship", "conflict"]
+
+  - name: "关系_沟通"
+    priority: 78
+    match:
+      keywords_any: ["沟通", "表达", "解释", "理解", "communication", "talk", "explain"]
+    output:
+      topic_path: "relationship/communication"
+      tags: ["relationship", "communication"]
+
+  - name: "关系_家庭"
+    priority: 75
+    match:
+      keywords_any: ["家人", "父母", "妈妈", "爸爸", "兄弟", "姐妹", "family", "parents", "mom", "dad", "sibling"]
+    output:
+      topic_path: "relationship/family"
+      tags: ["relationship", "family"]
+
+  - name: "宠物_猫"
+    priority: 75
+    match:
+      keywords_any: ["猫", "猫咪", "喵", "绝育", "cat", "kitten", "neuter"]
+    output:
+      topic_path: "pet/cat"
+      tags: ["pet", "cat"]
+
+  - name: "宠物_狗"
+    priority: 75
+    match:
+      keywords_any: ["狗", "狗狗", "汪", "dog", "puppy"]
+    output:
+      topic_path: "pet/dog"
+      tags: ["pet", "dog"]
+
+  - name: "旅行_机票"
+    priority: 72
+    match:
+      keywords_any: ["机票", "航班", "机场", "flight", "airline", "airport", "ticket"]
+    output:
+      topic_path: "travel/flight"
+      tags: ["travel", "flight"]
+
+  - name: "旅行_酒店"
+    priority: 72
+    match:
+      keywords_any: ["酒店", "住宿", "旅馆", "民宿", "hotel", "hostel", "booking", "stay"]
+    output:
+      topic_path: "travel/hotel"
+      tags: ["travel", "hotel"]
+
+  - name: "旅行_签证"
+    priority: 70
+    match:
+      keywords_any: ["签证", "入境", "护照", "visa", "passport", "immigration"]
+    output:
+      topic_path: "travel/visa"
+      tags: ["travel", "visa"]
+
+  - name: "旅行_行程"
+    priority: 70
+    match:
+      keywords_any: ["行程", "路线", "攻略", "安排", "itinerary", "plan", "schedule"]
+    output:
+      topic_path: "travel/itinerary"
+      tags: ["travel", "itinerary"]
+
+  - name: "美食_餐厅"
+    priority: 70
+    match:
+      keywords_any: ["餐厅", "外卖", "点餐", "聚餐", "restaurant", "takeout", "delivery"]
+    output:
+      topic_path: "food/restaurant"
+      tags: ["food", "restaurant"]
+
+  - name: "美食_做饭"
+    priority: 70
+    match:
+      keywords_any: ["做饭", "烹饪", "下厨", "炒菜", "cook", "cooking", "recipe"]
+    output:
+      topic_path: "food/cooking"
+      tags: ["food", "cooking"]
+
+  - name: "娱乐_动漫"
+    priority: 68
+    match:
+      keywords_any: ["动漫", "番剧", "动画", "声优", "anime", "animation"]
+    output:
+      topic_path: "entertainment/anime"
+      tags: ["entertainment", "anime"]
+
+  - name: "娱乐_电影"
+    priority: 65
+    match:
+      keywords_any: ["电影", "影院", "影评", "movie", "film", "cinema"]
+    output:
+      topic_path: "entertainment/movie"
+      tags: ["entertainment", "movie"]
+
+  - name: "娱乐_音乐"
+    priority: 65
+    match:
+      keywords_any: ["音乐", "演唱会", "歌曲", "music", "concert", "song"]
+    output:
+      topic_path: "entertainment/music"
+      tags: ["entertainment", "music"]
+
+  - name: "娱乐_游戏"
+    priority: 65
+    match:
+      keywords_any: ["游戏", "开黑", "电竞", "game", "gaming", "esports"]
+    output:
+      topic_path: "entertainment/game"
+      tags: ["entertainment", "game"]
+
+  - name: "娱乐_舞蹈"
+    priority: 64
+    match:
+      keywords_any: ["舞蹈", "舞会", "dance", "舞蹈比赛", "dance competition", "dance class", "dance studio", "dancing"]
+    output:
+      topic_path: "entertainment/dance"
+      tags: ["entertainment", "dance"]
+
+  - name: "运动_健身房"
+    priority: 62
+    match:
+      keywords_any: ["健身房", "器械", "gym", "weights"]
+    output:
+      topic_path: "sports/gym"
+      tags: ["sports", "gym"]
+
+  - name: "运动_跑步"
+    priority: 60
+    match:
+      keywords_any: ["跑步", "慢跑", "马拉松", "running", "run", "marathon"]
+    output:
+      topic_path: "sports/running"
+      tags: ["sports", "running"]
+
+  - name: "运动_户外"
+    priority: 60
+    match:
+      keywords_any: ["徒步", "hiking", "户外", "攀岩", "zip-lining", "zip lining", "滑索", "outdoor", "climbing"]
+    output:
+      topic_path: "sports/outdoor"
+      tags: ["sports", "outdoor"]
+
+  - name: "兴趣_艺术"
+    priority: 60
+    match:
+      keywords_any: ["绘画", "画画", "painting", "画展", "art show", "艺术展", "art", "exhibition"]
+    output:
+      topic_path: "hobby/art"
+      tags: ["hobby", "art"]
+
+  - name: "购物_数码"
+    priority: 60
+    match:
+      keywords_any: ["手机", "电脑", "耳机", "数码", "phone", "laptop", "electronics", "headphones"]
+    output:
+      topic_path: "shopping/electronics"
+      tags: ["shopping", "electronics"]
+
+  - name: "购物_服饰"
+    priority: 60
+    match:
+      keywords_any: ["衣服", "穿搭", "鞋", "clothes", "outfit", "shoes"]
+    output:
+      topic_path: "shopping/clothes"
+      tags: ["shopping", "clothes"]
+
+  - name: "居家_租房"
+    priority: 58
+    match:
+      keywords_any: ["房租", "租房", "租金", "rent", "landlord", "lease"]
+    output:
+      topic_path: "home/rent"
+      tags: ["home", "rent"]
+
+  - name: "出行_通勤"
+    priority: 58
+    match:
+      keywords_any: ["通勤", "地铁", "上班路", "堵车", "commute", "traffic", "subway", "bus"]
+    output:
+      topic_path: "transport/commute"
+      tags: ["transport", "commute"]
+
+  - name: "日程_预约"
+    priority: 55
+    match:
+      keywords_any: ["预约", "提醒", "日程", "appointment", "schedule", "reminder"]
+    output:
+      topic_path: "schedule/appointment"
+      tags: ["schedule", "appointment"]
+
+  - name: "日程_出席"
+    priority: 55
+    match:
+      keywords_any: ["出席", "到场", "签到", "attendance", "attend", "check-in"]
+    output:
+      topic_path: "schedule/attendance"
+      tags: ["schedule", "attendance"]
+
+  - name: "生活_日记"
+    priority: 60
+    match:
+      keywords_any: ["日记", "记录", "写下", "感想", "diary", "journal", "reflection"]
+    output:
+      topic_path: "life/diary"
+      tags: ["life", "diary"]
+
+  - name: "生活_里程碑"
+    priority: 60
+    match:
+      keywords_any: ["纪念日", "里程碑", "重要日子", "周年", "milestone", "anniversary"]
+    output:
+      topic_path: "life/milestone"
+      tags: ["life", "milestone"]
+
+  - name: "生活_决策"
+    priority: 60
+    match:
+      keywords_any: ["决定", "选择", "犹豫", "取舍", "decision", "choice"]
+    output:
+      topic_path: "life/decision"
+      tags: ["life", "decision"]
+
+  - name: "生活_价值观"
+    priority: 58
+    match:
+      keywords_any: ["价值观", "人生", "意义", "方向", "values", "meaning", "purpose"]
+    output:
+      topic_path: "life/values"
+      tags: ["life", "values"]
+
+  - name: "生活_休闲"
+    priority: 58
+    match:
+      keywords_any: ["休闲", "leisure", "放松", "消遣", "闲暇", "relax", "break"]
+    output:
+      topic_path: "life/leisure"
+      tags: ["life", "leisure"]
+
+  - name: "社交_志愿"
+    priority: 58
+    match:
+      keywords_any: ["志愿", "volunteering", "community service", "公益", "社会服务", "volunteer"]
+    output:
+      topic_path: "social/volunteering"
+      tags: ["social", "volunteering", "community"]
+
+  - name: "社交_社区"
+    priority: 55
+    match:
+      keywords_any: ["社区", "community", "邻里", "互助", "mutual support", "neighborhood"]
+    output:
+      topic_path: "social/community"
+      tags: ["social", "community"]
+
+  - name: "目标_习惯"
+    priority: 55
+    match:
+      keywords_any: ["习惯", "打卡", "坚持", "目标"]
+    output:
+      topic_path: "goals/habit"
+      tags: ["goals", "habit"]
+
+  - name: "目标_动力"
+    priority: 55
+    match:
+      keywords_any: ["动力", "激励", "坚持下去", "想放弃"]
+    output:
+      topic_path: "goals/motivation"
+      tags: ["goals", "motivation"]
+
+  - name: "目标_成长"
+    priority: 55
+    match:
+      keywords_any: ["成长", "自我提升", "进步", "蜕变"]
+    output:
+      topic_path: "goals/self_growth"
+      tags: ["goals", "self_growth"]
+
+  - name: "技术_软件"
+    priority: 55
+    match:
+      keywords_any: ["软件", "应用", "App", "更新", "bug"]
+    output:
+      topic_path: "tech/software"
+      tags: ["tech", "software"]
+
+  - name: "学习内容兜底"
+    priority: 50
+    match:
+      keywords_any: ["学习", "learn", "课程", "教程", "作业"]
+    output:
+      topic_path: "_uncategorized/learning"
+      tags: ["learning"]
+
+  - name: "生活类兜底"
+    priority: 40
+    match:
+      keywords_any: ["生活", "日常", "吃饭", "睡觉", "购物", "家务"]
+    output:
+      topic_path: "_uncategorized/lifestyle"
+      tags: ["lifestyle"]
+
+  - name: "工作类兜底"
+    priority: 40
+    match:
+      keywords_any: ["工作", "项目", "任务", "会议", "日报"]
+    output:
+      topic_path: "_uncategorized/work"
+      tags: ["work"]
+
+  - name: "高熵杂谈兜底"
+    priority: 10
+    match:
+      keywords_any: ["随便聊", "杂谈", "胡扯", "乱七八糟", "没事"]
+    output:
+      topic_path: "_uncategorized/high_entropy"
+      tags: ["high_entropy"]

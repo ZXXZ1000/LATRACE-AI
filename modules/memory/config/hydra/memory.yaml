@@ -1,0 +1,265 @@
+﻿memory:
+  # 当 `USE_HYDRA_CONFIG=1`（或 `load_memory_config(use_hydra=True)`）时，本文件作为主配置源。
+  vector_store:
+    # NOTE: Milvus temporarily disabled; leave MILVUS_HOST/MILVUS_PORT unset.
+    kind: qdrant  # qdrant (milvus temporarily disabled)
+    host: ${oc.env:QDRANT_HOST,""}
+    port: ${oc.env:QDRANT_PORT,6333}
+    collections:
+      text: memory_text
+      image: memory_image
+      audio: memory_audio
+      clip_image: memory_clip_image
+      face: memory_face
+    embedding:
+      provider: local
+      model: jina-embeddings-v2-base-zh
+      local_path: modules/memorization_agent/ops/models/jina-embeddings-v2-base-zh
+      dim: 768
+      normalize: true
+      batch_size: 128
+      embed_concurrency: 30
+      distance: cosine
+      image:
+        provider: clip
+        model: ViT-B/32
+        dim: 512
+      clip_image:
+        provider: clip
+        model: ViT-B/32
+        dim: 512
+      audio:
+        provider: eres2net
+        model: eres2netv2
+        dim: 192
+      face:
+        dim: 512
+    search:
+      modality_weights:
+        text: 1.0
+        clip_image: 0.85
+    transport:
+      use_async_http: false
+    sharding:
+      enabled: false
+      method: custom
+      key_field: tenant_id
+      shard_number: 1
+      replication_factor: 1
+      write_consistency_factor: 1
+      namespace_ids_by_tenant: true
+
+  graph_store:
+    kind: neo4j
+    uri: ${oc.env:NEO4J_URI,""}
+    user: ${oc.env:NEO4J_USER,""}
+    password: ${oc.env:NEO4J_PASSWORD,""}
+    database: ${oc.env:NEO4J_DATABASE,"neo4j"}
+    strict_tenant_mode: ${oc.env:MEMORY_GRAPH_STRICT_TENANT_MODE,"false"}
+    enable_legacy_memory_node: ${oc.env:MEMORY_GRAPH_ENABLE_LEGACY_MEMORY_NODE,"true"}
+
+  decider:
+    enabled: true
+    provider: ${oc.env:LLM_PROVIDER,""}
+    timeout_ms: 8000
+    fallback: heuristic
+
+  llm:
+    extract:
+      provider: openrouter
+      model: google/gemini-2.5-flash
+    text:
+      provider: glm
+      model: glm-4.6
+    qa:
+      provider: dashscope
+      model: qwen-plus
+    judge:
+      provider: openrouter
+      model: openai/gpt-4o-mini
+    reranker:
+      provider: dashscope
+      model: qwen3-rerank
+    agentic_router:
+      provider: glm
+      model: glm-4.6
+    multimodal:
+      provider: gemini
+      model: "gemini-2.5-flash-lite"
+      required: true
+      mapping_strategy: none
+
+  dialog:
+    event_alignment:
+      top_k: 3
+      min_score: 0.35
+      embed_batch_size: 128
+      embed_concurrency: 50
+    event_gate:
+      min_event_confidence: 0.4
+      max_events_per_session: 0
+    event_supported_by_topk: 5
+    event_extract_concurrency: 50
+    fact_extract_concurrency: 50
+    event_ttl:
+      mapped: 0
+      weak: "7d"
+      unmapped: "discard"
+    event_segmentation:
+      max_turns: 120
+
+  governance:
+    ttl:
+      episodic_default_seconds: 86400
+      semantic_default_seconds: 0
+    importance:
+      text_boost: 0.1
+      ctrl_boost: 0.1
+    pinned:
+      enabled: true
+      rules: []
+    per_domain_ttl:
+      work: "30d"
+      home: "90d"
+      system: "7d"
+    importance_overrides:
+      work: 0.1
+
+  ingest:
+    executor:
+      enabled: true
+      worker_count: 10
+      queue_maxsize: 0
+      global_concurrency: 10
+      per_tenant_concurrency: 3
+      job_timeout_s: 900
+      shutdown_grace_s: 30
+      recover_stale_s: 3600
+      retry_delay_s: 60
+  search:
+    character_expansion:
+      enabled: true
+      max_variants: 100
+      aggregation: max
+    ann:
+      default_topk: 10
+      threshold: null
+      relax_threshold_on_empty: false
+      default_modalities: [text, clip_image]
+      default_all_modalities: false
+    lexical_hybrid:
+      enabled: false
+      corpus_limit: 500
+      lexical_topn: 50
+      normalize_scores: true
+    scoping:
+      default_scope: global
+      user_match_mode: any
+      require_user: false
+      fallback_order: []
+    graph:
+      expand: true
+      max_hops: 3
+      rel_whitelist: [APPEARS_IN, SAID_BY, LOCATED_IN, DESCRIBES, TEMPORAL_NEXT, EQUIVALENCE, SUPPORTED_BY, TEMPORALLY_CONTAINS, INVOLVES]
+      min_weight: 1.0
+      neighbor_cap_per_seed: 10
+      hop1_boost: 1.0
+      hop2_boost: 0.5
+      restrict_to_user: true
+      restrict_to_domain: true
+      allow_cross_user: false
+      allow_cross_domain: false
+    cache:
+      enabled: true
+      ttl_seconds: 60
+      max_entries: 256
+    sampling:
+      enabled: false
+      rate: 0.05
+    rerank:
+      alpha_vector: 0.40
+      beta_bm25: 0.50
+      gamma_graph: 0.05
+      delta_recency: 0.05
+      user_boost: 0.0
+      domain_boost: 0.15
+      session_boost: 0.0
+    dialog_v2:
+      ranking:
+        rrf_k: 60
+        weights:
+          event_vec: 0.6
+          vec: 0.6
+          knowledge: 0.9
+          entity: 0.15
+          time: 0.15
+          match: 1.0
+          recency: 0.0
+          signal: 0.0
+          score_blend_alpha: 0.7
+      reranker:
+        enabled: false
+        engine: native
+        llm_kind: reranker
+        stage: preselect  # preselect | final_only
+        score_mode: rerank_only  # only applies when stage=preselect
+        rerank_pool_size: 80
+        weight_base: 0.25
+        weight_rerank: 0.75
+        instruct: "Given a user query, rank the passages by how directly they help answer the query."
+        weight_type: 0.1
+        type_bias:
+          fact: 0.15
+          reference: 0.10
+          event: 0.0
+          unknown: 0.0
+
+  events:
+    publish_memory_ready: true
+
+  api:
+    topk_defaults:
+      search: 10
+      retrieval: 15
+      graph_search: 10
+    auth:
+      enabled: false
+      header: X-API-Token
+      token: ${oc.env:MEMORY_API_TOKEN,""}
+      tenant_id: ${oc.env:MEMORY_API_TENANT_ID,""}
+      jwt:
+        jwks_url: ${oc.env:MEMORY_API_JWKS_URL,""}
+        audience: ${oc.env:MEMORY_API_JWT_AUD,""}
+        issuer: ${oc.env:MEMORY_API_JWT_ISS,""}
+        tenant_claim: tenant_id
+        jwks_cache_seconds: 300
+      signing:
+        required: false
+        header: X-Signature
+        timestamp_header: X-Signature-Ts
+        max_skew_seconds: 300
+        default_secret: ${oc.env:MEMORY_API_SIGNING_SECRET,""}
+        secrets: {}
+    limits:
+      rate_limit_enabled: false
+      requests_per_minute: 0
+      burst: 30
+      high_cost_timeout_seconds: 15
+      max_request_bytes: 10485760
+    retrieval:
+      with_answer_enabled: true
+      with_answer_scope: ""
+
+  write:
+    batch:
+      enabled: false
+      max_items: 50
+
+  reliability:
+    retries:
+      max_attempts: 2
+      backoff_base_ms: 100
+      backoff_max_ms: 1000
+    circuit_breaker:
+      failure_threshold: 5
+      cooldown_seconds: 30

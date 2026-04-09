@@ -1,0 +1,17 @@
+You are a relevance scorer. Given a question and evidence passages, 
+score each passage's relevance to answering the question.
+
+Question: {query}
+
+Evidence passages:
+{passages}
+
+For each passage, output a relevance score from 0.0 to 1.0:
+- 1.0 = directly answers the question
+- 0.7-0.9 = highly relevant, contains key information
+- 0.4-0.6 = somewhat relevant, related context
+- 0.1-0.3 = marginally relevant
+- 0.0 = not relevant at all
+
+Output ONLY a JSON object with passage indices as keys and scores as values.
+Example: {{"1": 0.9, "2": 0.3, "3": 0.7}}

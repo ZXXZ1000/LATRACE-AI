@@ -1,0 +1,92 @@
+{
+  "tools": [
+    {
+      "name": "memory.search",
+      "description": "Search unified memory (ANN → graph expansion → rerank)",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"},
+          "topk": {"type": "integer", "minimum": 1, "default": 10},
+          "expand_graph": {"type": "boolean", "default": true},
+          "threshold": {"type": "number"},
+          "scope": {"type": "string", "description": "session|domain|user (default domain). Fallback follows configured order."},
+          "filters": {
+            "type": "object",
+            "properties": {
+              "modality": {"type": "array", "items": {"type": "string"}},
+              "time_range": {"type": "object"},
+              "clip_id": {},
+              "entities": {"type": "array", "items": {"type": "string"}},
+              "rel_types": {"type": "array", "items": {"type": "string"}},
+              "importance_range": {"type": "object"},
+              "stability_range": {"type": "object"},
+              "ttl_range": {"type": "object"},
+              "memory_type": {"type": "array", "items": {"type": "string"}},
+              "source": {"type": "array", "items": {"type": "string"}},
+              "published": {"type": "boolean", "description": "Filter by publish state (default true; unpublished is hidden)."},
+              "user_id": {"type": "array", "items": {"type": "string"}, "description": "Object isolation principal. Pass 1 or more subject ids."},
+              "user_match": {"type": "string", "enum": ["any", "all"], "default": "any"},
+              "memory_domain": {"type": "string", "description": "Domain scoping (e.g., work/home/system)."},
+              "run_id": {"type": "string", "description": "Session/task grouping id."}
+            }
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "memory.write",
+      "description": "Batch write entries and relations",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "entries": {"type": "array"},
+          "links": {"type": "array"},
+          "upsert": {"type": "boolean", "default": true}
+        },
+        "required": ["entries"]
+      }
+    },
+    {
+      "name": "memory.update",
+      "description": "Update a memory entry",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "patch": {"type": "object"},
+          "reason": {"type": "string"}
+        },
+        "required": ["id", "patch"]
+      }
+    },
+    {
+      "name": "memory.delete",
+      "description": "Delete a memory entry (soft by default)",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {"type": "string"},
+          "soft": {"type": "boolean", "default": true},
+          "reason": {"type": "string"}
+        },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "memory.link",
+      "description": "Create or update a graph relation",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "src_id": {"type": "string"},
+          "dst_id": {"type": "string"},
+          "rel_type": {"type": "string"},
+          "weight": {"type": "number"}
+        },
+        "required": ["src_id", "dst_id", "rel_type"]
+      }
+    }
+  ]
+}

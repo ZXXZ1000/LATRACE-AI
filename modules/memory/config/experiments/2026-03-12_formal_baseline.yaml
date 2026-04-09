@@ -1,0 +1,31 @@
+meta:
+  id: 2026-03-12_formal_baseline
+  owner: zhaoxiang
+  purpose: promoted formal baseline after removing repo-tracked runtime overrides
+  datasets:
+    - showcase_pack_v1
+    - conv26
+
+overrides:
+  memory.search.rerank.alpha_vector: 0.4
+  memory.search.rerank.beta_bm25: 0.5
+  memory.search.rerank.gamma_graph: 0.05
+  memory.search.rerank.delta_recency: 0.05
+  memory.search.rerank.user_boost: 0.0
+  memory.search.rerank.domain_boost: 0.15
+  memory.search.rerank.session_boost: 0.0
+  memory.search.lexical_hybrid.enabled: false
+  memory.search.lexical_hybrid.corpus_limit: 500
+  memory.search.lexical_hybrid.lexical_topn: 50
+  memory.search.lexical_hybrid.normalize_scores: true
+  memory.llm.qa.provider: dashscope
+  memory.llm.qa.model: qwen-plus
+  memory.llm.judge.provider: openrouter
+  memory.llm.judge.model: openai/gpt-4o-mini
+
+results:
+  showcase_accuracy: "13/19"
+  avg_retrieval_latency_ms: 163.98
+  notes: |
+    This baseline reflects the previously committed runtime override values that are now
+    promoted into memory.config.yaml as the formal default.

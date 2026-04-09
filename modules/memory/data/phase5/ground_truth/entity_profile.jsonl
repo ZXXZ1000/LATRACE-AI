@@ -1,0 +1,1 @@
+{"query_id":"ep-001","entity":"Alice","expected_facts":["Alice likes apples"],"expected_relations":["Bob"],"expected_recent_event_ids":["evt-3"]}

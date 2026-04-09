@@ -1,0 +1,116 @@
+# 🔷 优化后的搜索权重配置
+# 基于实验结果：bm25-only表现最佳（P@1=0.8, MRR=0.829）
+# 当前vec-only: P@1=0.6, MRR=0.729
+
+# === 推荐配置A: BM25主导 + 向量辅助 ===
+recommendation_a:
+  alpha_vector: 0.35    # 向量降至35%
+  beta_bm25: 0.50       # BM25提升至50%（主导）
+  gamma_graph: 0.15     # 图关系权重提升
+  
+  # 次级权重
+  delta_recency: 0.05   # 时间新鲜度略降
+  domain_boost: 0.15    # 保持域加分
+  user_boost: 0.0
+  session_boost: 0.0
+  
+  rationale: |
+    基于实验：bm25-only达到P@1=0.8（vs vec-only的0.6）
+    关键词型查询（如"dialogue scene"）更依赖精确匹配
+    预期：P@1提升至0.75-0.80, MRR提升至0.80+
+
+# === 推荐配置B: 平衡型（适合多样化查询）===
+recommendation_b:
+  alpha_vector: 0.40    # 向量保持一定权重
+  beta_bm25: 0.40       # BM25同等权重
+  gamma_graph: 0.20     # 图关系增强（社交/引用场景）
+  
+  delta_recency: 0.06
+  domain_boost: 0.15
+  user_boost: 0.0
+  session_boost: 0.0
+  
+  rationale: |
+    平衡向量语义与关键词匹配
+    图关系在人物/引用查询中可能有助益
+    预期：P@1=0.70-0.75, 泛化性更好
+
+# === 推荐配置C: 向量优化型（需改进向量质量）===
+recommendation_c:
+  alpha_vector: 0.60    # 向量仍为主导
+  beta_bm25: 0.30       # BM25作为补充
+  gamma_graph: 0.10     # 图关系辅助
+  
+  delta_recency: 0.08
+  domain_boost: 0.15
+  user_boost: 0.0
+  session_boost: 0.0
+  
+  prerequisites: |
+    1. 改进向量模型：使用针对场景/动作优化的模型
+    2. 查询扩展：将"dialogue scene"扩展为完整句子
+    3. 负样本挖掘：增强向量区分度
+  
+  rationale: |
+    仅当向量质量提升后推荐
+    需配合查询改写（keyword → natural language）
+
+# === 当前配置（待优化）===
+current:
+  alpha_vector: 0.9     # 过度偏向向量
+  beta_bm25: 0.15       # BM25信号被淹没
+  gamma_graph: 0.1      # 图关系未充分利用
+  
+  issues: |
+    1. 权重归一化后BM25实际影响<10%
+    2. 关键词型查询与向量检索不匹配
+    3. 未利用图关系的结构信息
+
+# === 验证策略 ===
+validation:
+  step1: |
+    应用recommendation_a，重新运行实验
+    预期：P@1从0.6提升至0.75+
+  
+  step2: |
+    对比recommendation_a vs recommendation_b
+    关注不同查询类型的表现差异：
+    - 关键词型（"dialogue scene"）
+    - 语义型（"两人在客厅交谈的场景"）
+  
+  step3: |
+    分析badcase：R@10=0.683意味着33%的金标不在Top10
+    定位是索引缺失还是排序问题
+
+# === 进阶优化方向 ===
+advanced_optimizations:
+  1_score_normalization: |
+    问题：向量/BM25/图分数尺度不一致
+    方案：Min-Max归一化或Z-score标准化各分支
+    
+  2_query_expansion: |
+    问题：关键词型查询未充分利用向量
+    方案：查询改写 "dialogue scene" → "两人在进行对话交流的场景"
+    
+  3_learned_weights: |
+    问题：固定权重无法适应不同查询类型
+    方案：训练分类器预测每个查询的最优权重组合
+    
+  4_hybrid_retrieval: |
+    问题：单阶段融合限制了各分支表达
+    方案：两阶段检索（BM25召回 → 向量精排）
+
+# === 配置应用方法 ===
+usage: |
+  # 1. 在memory.config.yaml中应用
+  memory:
+    search:
+      weights: !include optimized_search_weights.yaml#recommendation_a
+  
+  # 2. 或在Notebook中动态覆盖
+  from modules.memory.application import runtime_config as rtconf
+  rtconf.set_search_weights(
+      alpha_vector=0.35,
+      beta_bm25=0.50,
+      gamma_graph=0.15
+  )

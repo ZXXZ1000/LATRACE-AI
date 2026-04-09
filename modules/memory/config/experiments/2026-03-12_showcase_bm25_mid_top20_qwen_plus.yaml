@@ -1,0 +1,27 @@
+meta:
+  id: 2026-03-12_showcase_bm25_mid_top20_qwen_plus
+  owner: zhaoxiang
+  purpose: lexical-first-stage candidate for showcase evaluation
+  datasets:
+    - showcase_pack_v1
+
+overrides:
+  memory.search.rerank.alpha_vector: 0.35
+  memory.search.rerank.beta_bm25: 0.5
+  memory.search.rerank.gamma_graph: 0.1
+  memory.search.rerank.delta_recency: 0.05
+  memory.search.lexical_hybrid.enabled: true
+  memory.search.lexical_hybrid.corpus_limit: 500
+  memory.search.lexical_hybrid.lexical_topn: 50
+  memory.search.lexical_hybrid.normalize_scores: true
+  memory.llm.qa.provider: dashscope
+  memory.llm.qa.model: qwen-plus
+  memory.llm.judge.provider: openrouter
+  memory.llm.judge.model: openai/gpt-4o-mini
+
+results:
+  showcase_accuracy: "14/19"
+  avg_retrieval_latency_ms: 313.43
+  notes: |
+    Candidate improves lexical recall on the showcase pack, but has not yet been promoted.
+    Fresh-ingest instability is still a confounder, so this result is recorded, not adopted.

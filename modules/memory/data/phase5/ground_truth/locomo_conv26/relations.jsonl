@@ -1,0 +1,2 @@
+{"query_id": "rel-001", "entity": "Caroline", "entity_id": "b905a13d-451b-5ac3-8877-c3c6f05d89b9", "user_tokens": ["locomo_user_conv-26"], "expected_related_entities": ["02d71392-9b81-59f9-89f1-9902b650c410"]}
+{"query_id": "rel-002", "entity": "Melanie", "entity_id": "02d71392-9b81-59f9-89f1-9902b650c410", "user_tokens": ["locomo_user_conv-26"], "expected_related_entities": ["b905a13d-451b-5ac3-8877-c3c6f05d89b9"]}

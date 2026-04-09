@@ -1,0 +1,168 @@
+{
+  "baseline": {
+    "rrf_k": 60,
+    "topk": 20,
+    "score_blend_alpha": 0.7,
+    "w_event_vec": 0.6,
+    "w_vec": 0.6,
+    "w_knowledge": 0.9,
+    "w_entity": 0.15,
+    "w_time": 0.15,
+    "w_match": 1.0,
+    "w_recency": 0.0,
+    "w_signal": 0.0
+  },
+  "presets": {
+    "priority_scan": {
+      "description": "First-wave scan for rrf_k, event route weight, and recency.",
+      "grid": {
+        "rrf_k": [
+          45,
+          60,
+          90
+        ],
+        "topk": [
+          20
+        ],
+        "score_blend_alpha": [
+          1.0
+        ],
+        "w_event_vec": [
+          0.6,
+          0.9,
+          1.2
+        ],
+        "w_vec": [
+          0.6
+        ],
+        "w_knowledge": [
+          0.6
+        ],
+        "w_entity": [
+          0.3
+        ],
+        "w_time": [
+          0.3
+        ],
+        "w_match": [
+          1.0
+        ],
+        "w_recency": [
+          0.0,
+          0.05,
+          0.15,
+          0.35
+        ],
+        "w_signal": [
+          0.0
+        ]
+      }
+    },
+    "route_balance_scan": {
+      "description": "Differentiate high-precision and low-precision routes.",
+      "grid": {
+        "rrf_k": [
+          45,
+          60
+        ],
+        "topk": [
+          20
+        ],
+        "score_blend_alpha": [
+          1.0
+        ],
+        "w_event_vec": [
+          0.6,
+          0.9,
+          1.2
+        ],
+        "w_vec": [
+          0.3,
+          0.6
+        ],
+        "w_knowledge": [
+          0.6,
+          0.9
+        ],
+        "w_entity": [
+          0.15,
+          0.3
+        ],
+        "w_time": [
+          0.15,
+          0.3
+        ],
+        "w_match": [
+          0.6,
+          1.0
+        ],
+        "w_recency": [
+          0.0,
+          0.05,
+          0.15
+        ],
+        "w_signal": [
+          0.0,
+          0.01
+        ]
+      }
+    },
+    "full_ranking_scan": {
+      "description": "Full offline ranking-only sweep. Candidate-pool-changing params are intentionally excluded.",
+      "grid": {
+        "rrf_k": [
+          30,
+          45,
+          60,
+          90
+        ],
+        "topk": [
+          20
+        ],
+        "score_blend_alpha": [
+          1.0,
+          0.7,
+          0.5
+        ],
+        "w_event_vec": [
+          0.6,
+          0.9,
+          1.2
+        ],
+        "w_vec": [
+          0.3,
+          0.6
+        ],
+        "w_knowledge": [
+          0.6,
+          0.9
+        ],
+        "w_entity": [
+          0.15,
+          0.3
+        ],
+        "w_time": [
+          0.15,
+          0.3
+        ],
+        "w_match": [
+          0.0,
+          0.3,
+          0.6,
+          1.0
+        ],
+        "w_recency": [
+          0.0,
+          0.05,
+          0.15,
+          0.35
+        ],
+        "w_signal": [
+          0.0,
+          0.01,
+          0.02
+        ]
+      }
+    }
+  }
+}

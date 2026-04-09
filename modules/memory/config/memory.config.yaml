@@ -1,0 +1,327 @@
+memory:
+  # ---- Vector store (Qdrant) ----
+  # 说明：向量数据库配置。host/port 为服务地址；collections 为各模态集合名称。
+  # embedding 用于当上游未提供向量时的兜底嵌入（可换成真实提供商）
+  vector_store:
+    # NOTE: Milvus temporarily disabled; leave MILVUS_HOST/MILVUS_PORT unset.
+    kind: qdrant            # backend type: qdrant (milvus temporarily disabled)
+    host: ${QDRANT_HOST}    # Qdrant host
+    port: ${QDRANT_PORT}    # Qdrant port
+    collections:            # 各模态集合名（需与嵌入维度一致）
+      text: memory_text
+      image: memory_image
+      audio: memory_audio
+      clip_image: memory_clip_image
+      face: memory_face
+    embedding:              # 嵌入提供商（上游未给向量时兜底）
+      provider: openrouter         # 使用 OpenRouter API
+      model: openai/text-embedding-3-small   # OpenAI 兼容模型
+      dim: 1536             # text-embedding-3-small 维度
+      normalize: true       # L2 归一化
+      batch_size: 128       # 文本嵌入批大小（大批量实验）
+      embed_concurrency: 30  # 文本嵌入批并发（B 方案）
+      distance: cosine      # 相似度度量：cosine/dot/euclid
+      image:                # 图像嵌入（占位，后续可替换为真实模型）
+        provider: hash
+        model: ViT-B/32
+        dim: 512
+      clip_image:          # 文本可对齐的图像嵌入（OpenCLIP），默认启用
+        provider: hash
+        model: ViT-B/32
+        dim: 512
+      audio:                # 音频嵌入（占位，后续可替换为真实模型）
+        provider: eres2net
+        model: eres2netv2
+        dim: 192
+      face:                 # 人脸身份空间维度（与 insightface 输出对齐）
+        dim: 512
+    search:
+      modality_weights:
+        text: 1.0
+        clip_image: 0.85
+    transport:
+      use_async_http: false  # 默认关闭，按灰度/压测结果显式开启
+    sharding:
+      enabled: false
+      method: custom
+      key_field: tenant_id
+      shard_number: 1
+      replication_factor: 1
+      write_consistency_factor: 1
+      namespace_ids_by_tenant: true
+
+  # ---- Graph store (Neo4j) ----
+  # 说明：图数据库配置，用于实体/事件/关系查询与邻域展开。
+  graph_store:
+    kind: neo4j             # 图后端类型：neo4j
+    uri: ${NEO4J_URI}       # 连接URI（如 bolt://127.0.0.1:7687）
+    user: ${NEO4J_USER}     # 用户
+    password: ${NEO4J_PASSWORD}  # 密码
+    database: ${NEO4J_DATABASE}  # 数据库名（默认 neo4j）
+    strict_tenant_mode: ${MEMORY_GRAPH_STRICT_TENANT_MODE}  # 严格租户模式：缺 tenant 直接拒绝写入
+    enable_legacy_memory_node: ${MEMORY_GRAPH_ENABLE_LEGACY_MEMORY_NODE}  # 是否允许旧 MemoryNode 写入路径
+
+  # ---- LLM update-decider (mem0-style) ----
+  # 说明：是否启用基于 LLM 的 ADD/UPDATE/DELETE/NONE 记忆合并决策，异常时可回退启发式
+  decider:
+    enabled: true           # 是否启用LLM决策
+    provider: ${LLM_PROVIDER}  # 提供商（由环境变量指定）
+    timeout_ms: 8000        # LLM调用超时（毫秒）
+    fallback: heuristic     # LLM异常时回退：heuristic（启发式）
+
+  # ---- LLM（文本/多模选择） ----
+  # 说明：env 中可以配置多个 Provider 与多个 Key；此处只负责“选哪个 Provider 的哪个模型”。
+  # 文本与多模可分别指定；多模默认要求为“支持图像+文本”的模型。
+  # 注意：当 `USE_HYDRA_CONFIG=1`（或 `load_memory_config(use_hydra=True)`）时，
+  # 以 `modules/memory/config/hydra/memory.yaml` 为主配置来源。
+  #
+  # 支持的 provider:
+  #   - sglang:       本地 SGLang 服务（推荐用于本地开发/私有部署）
+  #   - openai:       OpenAI API
+  #   - openrouter:   OpenRouter 代理（访问多种模型）
+  #   - gemini:       Google Gemini（官方 SDK）
+  #   - qwen:         阿里通义千问
+  #   - glm:          智谱 GLM
+  #   - openai_compat: 任意 OpenAI 兼容 API（需配置 LLM_BASE_URL）
+  #
+  # 本地 SGLang 配置示例（启用时取消注释）：
+  # llm:
+  #   text:
+  #     provider: sglang
+  #     model: Qwen/Qwen3-VL-2B-Instruct  # SGLang 服务的模型名
+  #   multimodal:
+  #     provider: sglang
+  #     model: Qwen/Qwen3-VL-2B-Instruct
+  #     required: true
+  #     mapping_strategy: generic_image_url
+  # 并设置环境变量：SGLANG_BASE_URL=http://localhost:30000
+  #
+  llm:
+    # 知识抽取 LLM（用于 TKG 知识抽取）
+    extract:
+      provider: openrouter
+      model: google/gemini-2.5-flash
+    # QA 回答生成 LLM
+    qa:
+      provider: dashscope
+      model: qwen-plus
+    # Judge 评测 LLM
+    judge:
+      provider: openrouter
+      model: openai/gpt-4o-mini
+    # Reranker LLM（可选；用于 retrieval dialog_v2 的模型重排）
+    reranker:
+      provider: dashscope
+      model: qwen3-rerank
+    # Agentic 路由 LLM（Layer 2：工具路由，不生成自然语言答案）
+    agentic_router:
+      provider: openrouter
+      model: qwen/qwen3.5-flash-02-23
+    # 文本 LLM（通用/兜底）
+    text:
+      provider: openrouter
+      model: google/gemini-2.5-flash
+    # 多模态 LLM
+    multimodal:
+      provider: openrouter
+      model: qwen/qwen3-vl-8b-instruct
+      required: true
+      mapping_strategy: generic_image_url
+
+  # ---- Dialog Event Extraction ----
+  dialog:
+    event_alignment:
+      top_k: 3
+      min_score: 0.35
+      embed_batch_size: 128
+      embed_concurrency: 50
+    event_gate:
+      min_event_confidence: 0.4
+      max_events_per_session: 0
+    event_supported_by_topk: 5
+    event_extract_concurrency: 50
+    fact_extract_concurrency: 50
+    event_ttl:
+      mapped: 0
+      weak: "7d"
+      unmapped: "discard"
+    event_segmentation:
+      max_turns: 120
+
+  # ---- Governance (importance/ttl/pinned) ----
+  # 说明：记忆治理参数：TTL 控制过期；importance 表示重要性；pinned 为固定不回收规则。
+  governance:
+    ttl:
+      episodic_default_seconds: 86400   # 情节类默认 TTL（秒）；0 为长期保留
+      semantic_default_seconds: 0       # 语义类默认 TTL（秒）；0 为长期保留
+    importance:
+      text_boost: 0.1                   # 文本条目重要性加权（启发式）
+      ctrl_boost: 0.1                   # 控制来源重要性加权（启发式）
+    pinned:
+      enabled: true                     # 是否启用固定记忆
+      rules: []                         # 固定规则（预留）
+    # 按域治理覆盖（可选）
+    # - per_domain_ttl：覆盖该域条目的 TTL（支持 3600 / "30d" / "12h" / "15m" 等格式；0 表示长期保留）
+    # - importance_overrides：对该域条目的重要性进行加法微调（+0.1），范围仍被限制[0,1]
+    per_domain_ttl:
+      work: "30d"
+      home: "90d"
+      system: "7d"
+    importance_overrides:
+      work: 0.1
+
+  # ---- Search / Graph expansion / Cache / Rerank ----
+  ingest:
+    executor:
+      enabled: true
+      worker_count: 10
+      queue_maxsize: 0
+      global_concurrency: 10
+      per_tenant_concurrency: 3
+      job_timeout_s: 900
+      shutdown_grace_s: 30
+      recover_stale_s: 3600
+      retry_delay_s: 60
+  search:
+    character_expansion:
+      enabled: true               # 在查询文本中识别 character:名字 <character_名字> 并自动按角色过滤
+      max_variants: 100           # 预留：未来用于按标签变体（face/voice）展开的上限
+      aggregation: max            # 预留：多变体得分聚合策略：max|sum|mean
+    ann:
+      default_topk: 10               # ANN 召回候选数量（seed topk），不是高层 API 的返回 topk
+      threshold: null                 # 向量召回阈值（null 表示不启用阈值过滤）
+      relax_threshold_on_empty: false # 阈值导致空命中时是否回退无阈值
+      # 默认模态（未在 filters.modality 指定时生效）
+      # - 设置 default_modalities: [text, image, audio] 显式指定
+      # - 或设置 default_all_modalities: true 使用全部模态
+      # 二者同时存在时，以 default_modalities 优先
+      default_modalities: [text, image, audio]      # 默认文本/图像/音频
+      default_all_modalities: false
+    lexical_hybrid:
+      enabled: false
+      corpus_limit: 500
+      lexical_topn: 50
+      normalize_scores: true
+    scoping:
+      default_scope: global            # 默认作用域：session|domain|user|global
+      user_match_mode: any             # user_id 匹配模式：any|all
+      require_user: false              # 是否强制需要 user_id（true 时无 user 直接空结果）
+      fallback_order: []               # 回退顺序（空表示不做 scope 回退）
+    graph:
+      expand: true                      # 是否进行图邻域展开
+      max_hops: 2                       # 展开跳数（可按需求调整）
+      rel_whitelist: [APPEARS_IN, SAID_BY, LOCATED_IN, DESCRIBES, TEMPORAL_NEXT, EQUIVALENCE, EXECUTED, CO_OCCURS]  # 允许的关系类型
+      min_weight: 1.0                   # 最小边权（预留）
+      neighbor_cap_per_seed: 9           # 每个种子节点的邻居数量上限（优化后调整）
+      hop1_boost: 1.0                   # 1跳关系加权（路径分数）
+      hop2_boost: 0.5                   # 2跳关系加权（路径分数，弱于 1 跳）
+      restrict_to_user: true             # 启用用户隔离（确保同域内不跨用户扩散）
+      restrict_to_domain: true           # 默认限制在相同 memory_domain 内（无 domain 时跳过）
+      allow_cross_user: false           # 是否允许跨 user 扩展（诊断/管理场景）
+      allow_cross_domain: false         # 是否允许跨 domain 扩展（诊断/管理场景）
+    cache:
+      enabled: true                     # 搜索缓存开关（命中则直接返回）
+      ttl_seconds: 60                   # 缓存 TTL（秒）
+      max_entries: 256                  # 最大条目数（LRU 淘汰）
+    sampling:
+      enabled: false                    # 是否启用搜索采样日志（默认关闭）
+      rate: 0.05                        # 采样比例 0..1，建议 1%-10%
+    rerank:
+      # 当前正式默认权重；实验配置不再通过 repo-tracked runtime_overrides 承载
+      alpha_vector: 0.4
+      beta_bm25: 0.5
+      gamma_graph: 0.05
+      delta_recency: 0.05
+      user_boost: 0.0                    # user_id 交集加分（保持）
+      domain_boost: 0.15                 # memory_domain 加分（保持）
+      session_boost: 0.0                 # run_id 加分（保持）
+      # 说明：如需长期调整，请以此处为唯一正式配置来源；实验参数请记录到 config/experiments/
+    dialog_v2:
+      ranking:
+        rrf_k: 60
+        weights:
+          event_vec: 0.6
+          vec: 0.6
+          knowledge: 0.9
+          entity: 0.15
+          time: 0.15
+          match: 1.0
+          recency: 0.0
+          signal: 0.0
+          score_blend_alpha: 0.7
+      reranker:
+        enabled: false                 # dialog_v2 是否启用 reranker（默认关闭，按实验显式开启）
+        engine: native                   # noop | native | llm
+        llm_kind: reranker               # 选择 memory.llm.<kind> 作为 reranker 模型来源
+        stage: preselect                 # preselect | final_only；preselect 推荐在 union 粗排后、selected50 截断前介入
+        score_mode: rerank_only          # base_only | rerank_only | fused；仅对 stage=preselect 生效
+        rerank_pool_size: 80             # 从 union 粗排中送入 reranker 的候选数
+        weight_base: 0.25                # 原始粗排分数权重
+        weight_rerank: 0.75              # 原生 reranker 分数权重
+        instruct: "Given a user query, rank the passages by how directly they help answer the query."
+        weight_type: 0.1                 # 证据类型偏置权重
+        type_bias:
+          fact: 0.15
+          reference: 0.10
+          event: 0.0
+          unknown: 0.0
+
+  # ---- Events ----
+  # 说明：是否在写入后发布 memory_ready 事件
+  events:
+    publish_memory_ready: true
+
+  # ---- API Minimal Auth（可选） ----
+  # 说明：用于保护写/连边等敏感操作；/health /metrics_prom 始终放行。
+  api:
+    # 高层 API（/search, /retrieval/dialog/v2, /graph/v1/search）的默认返回条数
+    # 注意：这不是 ANN 的召回数量（见 memory.search.ann.default_topk），两者语义不同
+    topk_defaults:
+      search: 10
+      retrieval: 15
+      graph_search: 10
+    auth:
+      enabled: false                 # 开启后需携带固定 Token
+      header: X-API-Token            # 请求头名
+      token: ${MEMORY_API_TOKEN}     # Token（建议来自环境变量）
+      tenant_id: ${MEMORY_API_TENANT_ID}  # 单租户模式的租户标识（可选）
+      jwt:
+        jwks_url: ${MEMORY_API_JWKS_URL}      # OIDC/OAuth2 JWKS 端点
+        audience: ${MEMORY_API_JWT_AUD}
+        issuer: ${MEMORY_API_JWT_ISS}
+        tenant_claim: tenant_id
+        jwks_cache_seconds: 300
+      signing:
+        required: false                   # 生产建议 true：写/连边等必须携带签名
+        header: X-Signature
+        timestamp_header: X-Signature-Ts
+        max_skew_seconds: 300
+        default_secret: ${MEMORY_API_SIGNING_SECRET}
+        secrets: {}                       # 可选：每租户独立密钥 {tenant_id: secret}
+    limits:
+      rate_limit_enabled: false          # 默认关闭速率限制，生产建议开启
+      requests_per_minute: 0             # 每租户每分钟请求数（0 表示不开启）
+      burst: 30                          # 允许的突发额度（令牌桶上限）
+      high_cost_timeout_seconds: 15      # 搜索/时间线等高开销路径的超时（秒）
+      max_request_bytes: 10485760        # 请求体大小上限（10MB），保护边界
+    retrieval:
+      with_answer_enabled: true          # SaaS 公网建议 false（由网关/计划控制）
+      with_answer_scope: ""              # 可选：限制需要额外 scope 才允许 with_answer
+
+  # ---- Write batching ----
+  # 说明：写入批处理，累积到阈值后一次落库，削峰填谷。
+  write:
+    batch:
+      enabled: false                    # 是否启用批处理
+      max_items: 50                     # 批次最大条目数（达到即自动 flush）
+
+  # ---- Reliability / Retry / Circuit Breaker ----
+  # 说明：下游不稳定时的重试与熔断策略，提升整体稳定性。
+  reliability:
+    retries:
+      max_attempts: 2                  # 单次请求最大重试次数（含首次共 N 次）
+      backoff_base_ms: 100             # 初始退避时长（毫秒，指数退避）
+      backoff_max_ms: 1000             # 最大退避时长（毫秒上限）
+    circuit_breaker:
+      failure_threshold: 5             # 连续失败达到阈值后开启熔断
+      cooldown_seconds: 30             # 熔断后冷却时长，期间直接短路返回

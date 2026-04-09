@@ -1,0 +1,17 @@
+{
+  "rerank": {},
+  "graph": {},
+  "scoping": {
+    "default_scope": "domain",
+    "user_match_mode": "any",
+    "fallback_order": [
+      "session",
+      "domain",
+      "user"
+    ],
+    "require_user": false
+  },
+  "ann": {},
+  "lexical_hybrid": {},
+  "write": {}
+}

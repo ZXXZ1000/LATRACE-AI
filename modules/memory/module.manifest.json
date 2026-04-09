@@ -1,0 +1,53 @@
+{
+  "name": "memory",
+  "entries": [
+    "application/service.py"
+  ],
+  "contracts": [
+    "contracts/memory_models.py"
+  ],
+  "ports": [
+    "ports/memory_port.py"
+  ],
+  "adapters": [
+    "adapters/mem0_adapter.py",
+    "adapters/m3_adapter.py"
+  ],
+  "infra": [
+    "infra/qdrant_store.py",
+    "infra/vector_store_router.py",
+    "infra/milvus_store.py",
+    "infra/neo4j_store.py",
+    "infra/audit_store.py",
+    "infra/inmem_vector_store.py",
+    "infra/inmem_graph_store.py"
+  ],
+  "api": [
+    "api/memory_toolspec.json"
+  ],
+  "etl": [
+    "etl/pkl_to_db.py"
+  ],
+  "tests": [
+    "tests/unit/test_memory_port_contracts.py",
+    "tests/integration/test_memory_search_pipeline.py",
+    "tests/integration/test_real_stores_placeholders.py",
+    "tests/unit/test_memory_models_and_toolspec.py",
+    "tests/unit/test_memory_service_write.py",
+    "tests/unit/test_memory_service_search.py",
+    "tests/unit/test_memory_service_update_delete.py",
+    "tests/unit/test_audit_and_rollback.py",
+    "tests/unit/test_llm_decider_integration.py",
+    "tests/unit/test_mem0_decider.py",
+    "tests/integration/test_mcp_memory_port.py",
+    "tests/unit/test_profiles_m3_mem0.py",
+    "tests/unit/test_event_publish_on_write.py"
+  ],
+  "deps": [
+    "event_bus",
+    "cal_gateway"
+  ],
+  "health": [
+    "application/service.py#health_check"
+  ]
+}

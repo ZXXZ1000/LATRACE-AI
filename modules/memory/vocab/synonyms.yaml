@@ -1,0 +1,119 @@
+version: v1
+synonyms:
+  - canonical: "travel/japan"
+    variants: ["日本旅行", "去日本", "东京之旅", "Japan travel"]
+  - canonical: "travel/domestic"
+    variants: ["国内游", "周边游", "本地旅行"]
+  - canonical: "travel/international"
+    variants: ["出国", "境外旅行", "国际行"]
+  - canonical: "learning/programming"
+    variants: ["学编程", "学代码", "写代码", "编程学习", "开发学习"]
+  - canonical: "learning/language"
+    variants: ["学英语", "学日语", "练口语", "背单词"]
+  - canonical: "work/project"
+    variants: ["项目进展", "需求推进", "项目计划"]
+  - canonical: "finance/stock"
+    variants: ["股票", "基金", "股市"]
+  - canonical: "health/mental"
+    variants: ["情绪低落", "压力大", "焦虑", "崩溃"]
+  - canonical: "health/mental/anxiety"
+    variants: ["焦虑", "不安", "紧张", "panic"]
+  - canonical: "health/mental/depression"
+    variants: ["抑郁", "低落", "没意义", "消沉"]
+  - canonical: "health/mental/loneliness"
+    variants: ["孤独", "寂寞", "没人陪", "好孤单"]
+  - canonical: "health/mental/mindfulness"
+    variants: ["冥想", "正念", "呼吸练习", "放松"]
+  - canonical: "health/fitness"
+    variants: ["健身", "运动", "训练"]
+  - canonical: "relationship/partner"
+    variants: ["恋爱", "对象", "男朋友", "女朋友"]
+  - canonical: "relationship/dating"
+    variants: ["约会", "暧昧", "表白", "相亲"]
+  - canonical: "relationship/breakup"
+    variants: ["分手", "失恋", "复合"]
+  - canonical: "relationship/conflict"
+    variants: ["吵架", "矛盾", "冷战"]
+  - canonical: "relationship/communication"
+    variants: ["沟通", "表达", "解释", "理解"]
+  - canonical: "pet/cat"
+    variants: ["猫咪", "养猫", "猫"]
+  - canonical: "food/cooking"
+    variants: ["做饭", "下厨", "炒菜"]
+  - canonical: "entertainment/movie"
+    variants: ["电影", "看电影", "影院"]
+  - canonical: "entertainment/anime"
+    variants: ["日本动漫", "番剧", "anime"]
+  - canonical: "sports/running"
+    variants: ["跑步", "慢跑", "马拉松"]
+  - canonical: "transport/commute"
+    variants: ["通勤", "上班路", "地铁"]
+  - canonical: "schedule/appointment"
+    variants: ["预约", "挂号", "提醒"]
+  - canonical: "goals/habit"
+    variants: ["打卡", "坚持", "习惯"]
+  - canonical: "goals/motivation"
+    variants: ["动力", "激励", "坚持下去"]
+  - canonical: "goals/self_growth"
+    variants: ["成长", "自我提升", "进步"]
+  - canonical: "life/diary"
+    variants: ["日记", "记录", "写下", "感想"]
+  - canonical: "life/milestone"
+    variants: ["纪念日", "里程碑", "重要日子"]
+  - canonical: "life/decision"
+    variants: ["决定", "选择", "犹豫", "取舍"]
+  - canonical: "life/values"
+    variants: ["价值观", "人生", "意义", "方向"]
+  - canonical: "work/business"
+    variants:
+      [
+        "business",
+        "entrepreneurship",
+        "startup",
+        "Jon's business",
+        "Gina's business",
+        "business promotion",
+        "clothing_store_expansion",
+        "clothing_store_ad_campaign",
+        "online_store_launch",
+        "store expansion",
+        "ad campaign",
+      ]
+  - canonical: "entertainment/dance"
+    variants:
+      [
+        "dance competition",
+        "dance class",
+        "dance session",
+        "dance studio opening",
+        "Jon's dance studio",
+        "dance_studio_progress",
+      ]
+  - canonical: "social/volunteering"
+    variants: ["volunteering", "community service", "volunteer work"]
+  - canonical: "social/community"
+    variants: ["community", "mutual support", "neighborhood"]
+  - canonical: "learning/mentorship"
+    variants: ["mentorship", "mentor", "导师指导"]
+  - canonical: "schedule/attendance"
+    variants: ["attendance", "check-in", "签到", "出席"]
+  - canonical: "life/leisure"
+    variants: ["leisure", "free time", "休闲"]
+  - canonical: "hobby/art"
+    variants: ["painting", "art show", "art exhibition", "绘画", "画展"]
+  - canonical: "sports/outdoor"
+    variants: ["zip-lining experience", "zip lining", "徒步", "hiking"]
+  - canonical: "relationship/family"
+    variants: ["family_activity"]
+  - canonical: "family/children"
+    variants: ["adoption"]
+  - canonical: "work/career"
+    variants: ["career plans", "job loss"]
+  - canonical: "work/meeting"
+    variants: ["video presentation"]
+  - canonical: "social/event"
+    variants: ["pride parade"]
+  - canonical: "_uncategorized/learning"
+    variants: ["学习", "learn", "上课", "课程"]
+  - canonical: "_uncategorized/high_entropy"
+    variants: ["杂谈", "随便聊", "乱七八糟", "胡扯"]

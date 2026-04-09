@@ -1,0 +1,41 @@
+meta:
+  id: 2026-03-12_showcase_lexical_on_same_state
+  owner: zhaoxiang
+  purpose: isolate lexical_hybrid toggle on a fixed showcase ingest state
+  datasets:
+    - showcase_pack_v1
+
+overrides:
+  memory.search.lexical_hybrid.enabled: true
+  memory.search.lexical_hybrid.corpus_limit: 500
+  memory.search.lexical_hybrid.lexical_topn: 50
+  memory.search.lexical_hybrid.normalize_scores: true
+
+results:
+  comparison: baseline_vs_lexical_on_same_state
+  baseline_accuracy: "15/19"
+  candidate_accuracy: "15/19"
+  baseline_wrong_ids:
+    - q08
+    - q11
+    - q12
+    - q15
+  candidate_wrong_ids:
+    - q08
+    - q11
+    - q12
+    - q15
+  baseline_retrieval_latency_ms:
+    mean: 2547
+    p50: 1731
+    p95: 6904
+  candidate_retrieval_latency_ms:
+    mean: 323
+    p50: 310
+    p95: 398
+  notes: |
+    Candidate was run on the exact same tenant/user/session state produced by the baseline run,
+    reusing the showcase state file and skipping ingest. Accuracy did not improve, and the error
+    set remained identical. The lower latency is not yet strong promotion evidence because the
+    second pass reused an already warmed service state and may benefit from cache locality.
+    Result is recorded, not promoted.
