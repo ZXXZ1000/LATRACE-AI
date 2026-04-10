@@ -36,7 +36,7 @@ def test_run_video_benchmark_smoke(tmp_path: Path, monkeypatch) -> None:
     )
     monkeypatch.setattr(
         "modules.media_graph_compiler.adapters.local_media_pipeline.process_video_to_fs",
-        lambda video_path, fps=0.5, clip_px=256, face_px=640, out_base="", audio_fps=16000: {
+        lambda video_path, fps=0.5, clip_px=256, face_px=640, out_base="", audio_fps=16000, clip_start_s=0.0, clip_end_s=None: {
             "frames_clip": [str((tmp_path / f"clip_{i:06d}.jpg").resolve()) for i in range(24)],
             "frames_face": [str((tmp_path / f"face_{i:06d}.jpg").resolve()) for i in range(24)],
             "audio_b64": base64.b64encode(wav_bytes),

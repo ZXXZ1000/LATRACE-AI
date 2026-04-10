@@ -24,6 +24,7 @@ from modules.media_graph_compiler.application import (
     SPEAKER_TRACK_STAGE,
     VISUAL_TRACK_STAGE,
 )
+from modules.media_graph_compiler.domain import stable_visual_entity_id
 
 
 def _routing() -> MediaRoutingContext:
@@ -88,6 +89,23 @@ def _speaker_stage(_ctx):
                 "metadata": {"algorithm": "diarization", "transcript": "hello from the kitchen"},
             }
         ],
+        "stage_stats": {
+            "runtime": "test_speaker_stage",
+            "timings_ms": {
+                "diarization_ms": 1.0,
+                "chunk_slice_ms": 1.0,
+                "full_asr_ms": 1.0,
+                "align_and_materialize_ms": 1.0,
+                "embedding_ms": 1.0,
+                "total_ms": 5.0,
+            },
+            "counts": {
+                "speaker_tracks": 1,
+                "utterances": 1,
+                "evidence": 1,
+            },
+            "embedding_enabled": True,
+        },
     }
 
 
@@ -103,6 +121,12 @@ def _semantic_stage(ctx):
     assert ctx["optimization_plan"]["system"]["prefer_asset_replay"] is True
     digests = []
     for index, payload in enumerate(ctx["window_payloads"]):
+        if payload.get("modality") == "video":
+            assert "window_stats" in payload
+            assert "representative_frames" in payload
+            assert "segment_visual_profile" in payload
+            assert payload["window_stats"]["clip_frames_selected"] == len(payload.get("clip_frames") or [])
+            assert payload["window_stats"]["representative_frames"] == len(payload.get("representative_frames") or [])
         summary = " ".join(item["text"] for item in payload.get("utterances", [])) or f"window_{index}"
         participant_refs = [item["track_id"] for item in payload.get("visual_tracks", [])]
         participant_refs.extend(item["track_id"] for item in payload.get("speaker_tracks", []))
@@ -119,6 +143,18 @@ def _semantic_stage(ctx):
                 "semantic_payload": {
                     "stage": "semantic_compile_stage",
                     "window_index": index,
+                    "provider_response": {
+                        "semantic_timeline": [
+                            {
+                                "text": summary,
+                                "event_type": "conversation",
+                                "action": "speak",
+                                "actor_tag": "face_1",
+                            }
+                        ],
+                        "semantic": ["kitchen_scene"],
+                        "episodic": ["dialogue_window"],
+                    },
                 },
             }
         )
@@ -161,7 +197,7 @@ def test_compile_video_runs_end_to_end_with_assets_and_graph(tmp_path: Path, mon
     )
     monkeypatch.setattr(
         "modules.media_graph_compiler.adapters.local_media_pipeline.process_video_to_fs",
-        lambda video_path, fps=0.5, clip_px=256, face_px=640, out_base="", audio_fps=16000: {
+        lambda video_path, fps=0.5, clip_px=256, face_px=640, out_base="", audio_fps=16000, clip_start_s=0.0, clip_end_s=None: {
             "frames_clip": [str((assets_dir / "clip_000001.jpg").resolve()), str((assets_dir / "clip_000002.jpg").resolve())],
             "frames_face": [str((assets_dir / "face_000001.jpg").resolve()), str((assets_dir / "face_000002.jpg").resolve())],
             "audio_b64": None,
@@ -203,14 +239,23 @@ def test_compile_video_runs_end_to_end_with_assets_and_graph(tmp_path: Path, mon
     assert len(result.asset_outputs) == 2
     assert result.graph_request is not None
     assert result.trace.optimization_plan["visual"]["max_frames_per_window"] == 12
+    assert result.stats["semantic_windows"]["windows"] == 2
+    assert result.stats["semantic_windows"]["representative_frames_total"] >= 2
+    assert result.stats["semantic_windowing"]["adaptive"] is False
     occurs_in = [edge for edge in result.graph_request.edges if edge.rel_type == "OCCURS_IN"]
     aligned_with = [edge for edge in result.graph_request.edges if edge.rel_type == "ALIGNED_WITH"]
+    involves = [edge for edge in result.graph_request.edges if edge.rel_type == "INVOLVES"]
     assert len(occurs_in) == len(result.window_digests)
     assert len(aligned_with) == 1
+    assert len(involves) >= 1
     assert aligned_with[0].confidence == 0.91
+    assert result.graph_request.events[0].event_type == "conversation"
+    assert result.graph_request.events[0].action == "speak"
+    assert result.graph_request.events[0].actor_id == stable_visual_entity_id("video_1", "face_1")
     assert all(Path(asset.file_path).exists() for asset in result.asset_outputs if asset.file_path)
     assert result.stats["stage_timings_ms"]["visual_stage_ms"] >= 0.0
     assert result.stats["stage_timings_ms"]["speaker_stage_ms"] >= 0.0
+    assert result.stats["speaker_stage"]["timings_ms"]["full_asr_ms"] == 1.0
     assert result.stats["stage_timings_ms"]["total_ms"] >= result.stats["stage_timings_ms"]["graph_compile_ms"]
 
     cached_request = request.model_copy(
@@ -231,6 +276,7 @@ def test_compile_video_runs_end_to_end_with_assets_and_graph(tmp_path: Path, mon
 
     assert replay_result.visual_tracks[0].track_id == "face_1"
     assert replay_result.speaker_tracks[0].track_id == "voice_1"
+    assert replay_result.stats["speaker_stage"] == {}
     assert replay_result.asset_outputs == []
 
 
@@ -296,7 +342,7 @@ def test_compile_video_uses_default_local_stages_when_bus_is_empty(tmp_path: Pat
     )
     monkeypatch.setattr(
         "modules.media_graph_compiler.adapters.local_media_pipeline.process_video_to_fs",
-        lambda video_path, fps=0.5, clip_px=256, face_px=640, out_base="", audio_fps=16000: {
+        lambda video_path, fps=0.5, clip_px=256, face_px=640, out_base="", audio_fps=16000, clip_start_s=0.0, clip_end_s=None: {
             "frames_clip": [str((assets_dir / "clip_000001.jpg").resolve()), str((assets_dir / "clip_000002.jpg").resolve())],
             "frames_face": [str((assets_dir / "face_000001.jpg").resolve()), str((assets_dir / "face_000002.jpg").resolve())],
             "audio_b64": wav_b64,
@@ -393,7 +439,7 @@ def test_compile_video_default_semantic_stage_uses_resolved_provider(tmp_path: P
     )
     monkeypatch.setattr(
         "modules.media_graph_compiler.adapters.local_media_pipeline.process_video_to_fs",
-        lambda video_path, fps=0.5, clip_px=256, face_px=640, out_base="", audio_fps=16000: {
+        lambda video_path, fps=0.5, clip_px=256, face_px=640, out_base="", audio_fps=16000, clip_start_s=0.0, clip_end_s=None: {
             "frames_clip": [str((assets_dir / "clip_000001.jpg").resolve())],
             "frames_face": [str((assets_dir / "face_000001.jpg").resolve())],
             "audio_b64": wav_b64,
@@ -448,7 +494,8 @@ def test_compile_video_default_semantic_stage_uses_resolved_provider(tmp_path: P
         def generate(self, messages, response_format=None):
             return (
                 '{"semantic_timeline":[{"text":"face_1 在厨房里说 hello world。",'
-                '"actor_tag":"face_1","images":["img1"]}],"semantic":["厨房里有人说话"]}'
+                '"event_type":"conversation","action":"speak","actor_tag":"face_1","images":["img1"]}],'
+                '"semantic":["厨房里有人说话"]}'
             )
 
     monkeypatch.setattr(
@@ -484,6 +531,12 @@ def test_compile_video_default_semantic_stage_uses_resolved_provider(tmp_path: P
     assert "face_1 在厨房里说 hello world" in (digest.summary or "")
     assert digest.warnings == []
     assert digest.semantic_payload["provider_response"]["semantic"][0] == "厨房里有人说话"
+    assert result.graph_request.events[0].event_type == "conversation"
+    assert result.graph_request.events[0].action == "speak"
+    assert result.graph_request.events[0].actor_id == stable_visual_entity_id(
+        "video_provider_1",
+        "face_1",
+    )
 
 
 def test_compile_video_ignores_zero_duration_metadata_and_uses_probe_duration(
@@ -506,7 +559,7 @@ def test_compile_video_ignores_zero_duration_metadata_and_uses_probe_duration(
     )
     monkeypatch.setattr(
         "modules.media_graph_compiler.adapters.local_media_pipeline.process_video_to_fs",
-        lambda video_path, fps=0.5, clip_px=256, face_px=640, out_base="", audio_fps=16000: {
+        lambda video_path, fps=0.5, clip_px=256, face_px=640, out_base="", audio_fps=16000, clip_start_s=0.0, clip_end_s=None: {
             "frames_clip": [str((assets_dir / f"clip_{i:06d}.jpg").resolve()) for i in range(16)],
             "frames_face": [str((assets_dir / f"face_{i:06d}.jpg").resolve()) for i in range(16)],
             "audio_b64": None,
@@ -563,7 +616,16 @@ def test_compile_video_uses_visual_policy_fps_for_local_sampling(
         },
     )
 
-    def _fake_process_video_to_fs(video_path, fps=0.5, clip_px=256, face_px=640, out_base="", audio_fps=16000):
+    def _fake_process_video_to_fs(
+        video_path,
+        fps=0.5,
+        clip_px=256,
+        face_px=640,
+        out_base="",
+        audio_fps=16000,
+        clip_start_s=0.0,
+        clip_end_s=None,
+    ):
         captured_fps["value"] = float(fps)
         return {
             "frames_clip": [str((assets_dir / "clip_000001.jpg").resolve())],
@@ -597,3 +659,77 @@ def test_compile_video_uses_visual_policy_fps_for_local_sampling(
     )
 
     assert captured_fps["value"] == 2.0
+
+
+def test_compile_video_passes_clip_bounds_into_media_prepare_and_windows(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    video_path = tmp_path / "clip_demo.mp4"
+    video_path.write_bytes(b"not-a-real-video")
+    assets_dir = tmp_path / "assets_clip"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    captured = {}
+
+    monkeypatch.setattr(
+        "modules.media_graph_compiler.adapters.media_normalizer.MediaNormalizer.probe_media",
+        lambda self, path: {
+            "path": str(path),
+            "duration_seconds": 302.0,
+            "frame_rate": 1.0,
+            "has_audio": False,
+        },
+    )
+
+    def _fake_process_clip(
+        video_path,
+        fps=0.5,
+        clip_px=256,
+        face_px=640,
+        out_base="",
+        audio_fps=16000,
+        clip_start_s=0.0,
+        clip_end_s=None,
+    ):
+        captured["clip_start_s"] = clip_start_s
+        captured["clip_end_s"] = clip_end_s
+        return {
+            "frames_clip": [str((assets_dir / f"clip_{i:06d}.jpg").resolve()) for i in range(16)],
+            "frames_face": [str((assets_dir / f"face_{i:06d}.jpg").resolve()) for i in range(16)],
+            "audio_b64": None,
+            "audio_path": None,
+            "duration": 12.0,
+        }
+
+    monkeypatch.setattr(
+        "modules.media_graph_compiler.adapters.local_media_pipeline.process_video_to_fs",
+        _fake_process_clip,
+    )
+    for i in range(16):
+        (assets_dir / f"clip_{i:06d}.jpg").write_bytes(f"clip{i}".encode("utf-8"))
+        (assets_dir / f"face_{i:06d}.jpg").write_bytes(f"face{i}".encode("utf-8"))
+
+    bus = OperatorBus()
+    bus.register(VISUAL_TRACK_STAGE, lambda _ctx: {"visual_tracks": [], "evidence": []})
+    bus.register(SPEAKER_TRACK_STAGE, lambda _ctx: {"speaker_tracks": [], "utterances": [], "evidence": []})
+    bus.register(SEMANTIC_COMPILE_STAGE, _semantic_stage)
+
+    request = CompileVideoRequest(
+        routing=_routing(),
+        source=MediaSourceRef(source_id="video_clip_1", file_path=str(video_path)),
+        clip_start_s=30.0,
+        metadata={
+            "duration_seconds": 12.0,
+            "artifacts_dir": str(assets_dir),
+        },
+    )
+    result = compile_video(
+        request,
+        operator_bus=bus,
+        asset_store=LocalOperatorAssetStore(assets_dir),
+    )
+
+    assert captured["clip_start_s"] == 30.0
+    assert captured["clip_end_s"] == 42.0
+    assert result.window_digests[0].t_start_s == 30.0
+    assert result.window_digests[-1].t_end_s == 42.0

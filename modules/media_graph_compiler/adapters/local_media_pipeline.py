@@ -39,6 +39,9 @@ class LocalMediaPipeline:
         *,
         file_path: str,
         artifacts_dir: str | Path,
+        clip_start_s: float = 0.0,
+        clip_end_s: float | None = None,
+        requested_duration_s: float | None = None,
         sample_fps: float,
         clip_px: int,
         face_px: int,
@@ -48,6 +51,12 @@ class LocalMediaPipeline:
     ) -> Dict[str, Any]:
         normalized_path = self._normalizer.ensure_video_path(file_path)
         probe = self._normalizer.probe_media(normalized_path)
+        effective_clip_start_s, effective_clip_end_s, effective_duration_s = self._resolve_clip_bounds(
+            probe_duration_s=probe.get("duration_seconds"),
+            clip_start_s=clip_start_s,
+            clip_end_s=clip_end_s,
+            requested_duration_s=requested_duration_s,
+        )
         media_root = Path(artifacts_dir) / "media_pipeline"
         prepared = process_video_to_fs(
             normalized_path,
@@ -56,6 +65,8 @@ class LocalMediaPipeline:
             face_px=face_px,
             out_base=str(media_root),
             audio_fps=16000,
+            clip_start_s=effective_clip_start_s,
+            clip_end_s=effective_clip_end_s,
         )
         frames_clip = list(prepared.get("frames_clip") or [])
         frames_face = list(prepared.get("frames_face") or [])
@@ -71,7 +82,7 @@ class LocalMediaPipeline:
         selected_face = [frames_face[index] for index in kept_indices] if frames_face else []
 
         duration_seconds = float(
-            probe.get("duration_seconds")
+            effective_duration_s
             or prepared.get("duration")
             or 0.0
         )
@@ -84,11 +95,15 @@ class LocalMediaPipeline:
             count=len(selected_clip),
             effective_fps=effective_frame_rate,
             duration_seconds=duration_seconds,
+            start_offset_s=effective_clip_start_s,
         )
 
         return {
             "normalized_video_path": normalized_path,
             "duration_seconds": duration_seconds,
+            "clip_start_s": effective_clip_start_s,
+            "clip_end_s": effective_clip_end_s,
+            "media_time_offset_s": effective_clip_start_s,
             "frame_rate": probe.get("frame_rate"),
             "width": probe.get("width"),
             "height": probe.get("height"),
@@ -111,20 +126,64 @@ class LocalMediaPipeline:
         count: int,
         effective_fps: float,
         duration_seconds: float,
+        start_offset_s: float = 0.0,
     ) -> List[float]:
         if count <= 0:
             return []
         if effective_fps > 0:
-            timestamps = [round(index / effective_fps, 3) for index in range(count)]
+            timestamps = [round(start_offset_s + (index / effective_fps), 3) for index in range(count)]
             if duration_seconds > 0:
-                return [min(duration_seconds, item) for item in timestamps]
+                clip_end_s = start_offset_s + duration_seconds
+                return [min(clip_end_s, item) for item in timestamps]
             return timestamps
         if duration_seconds <= 0:
-            return [0.0 for _ in range(count)]
+            return [round(start_offset_s, 3) for _ in range(count)]
         if count == 1:
-            return [0.0]
+            return [round(start_offset_s, 3)]
         step = duration_seconds / float(count)
-        return [round(index * step, 3) for index in range(count)]
+        return [round(start_offset_s + (index * step), 3) for index in range(count)]
+
+    @staticmethod
+    def _resolve_clip_bounds(
+        *,
+        probe_duration_s: Any,
+        clip_start_s: float,
+        clip_end_s: float | None,
+        requested_duration_s: float | None,
+    ) -> tuple[float, float | None, float]:
+        start_s = max(0.0, float(clip_start_s or 0.0))
+        probe_duration = 0.0
+        try:
+            if probe_duration_s is not None:
+                probe_duration = max(0.0, float(probe_duration_s))
+        except Exception:
+            probe_duration = 0.0
+
+        end_s: float | None = None
+        if clip_end_s is not None:
+            try:
+                end_candidate = float(clip_end_s)
+                if end_candidate > start_s:
+                    end_s = end_candidate
+            except Exception:
+                end_s = None
+        if end_s is None and requested_duration_s is not None:
+            try:
+                requested_duration = float(requested_duration_s)
+                if requested_duration > 0.0:
+                    end_s = start_s + requested_duration
+            except Exception:
+                end_s = None
+        if end_s is None and probe_duration > 0.0:
+            end_s = probe_duration
+
+        if probe_duration > 0.0 and end_s is not None:
+            end_s = min(end_s, probe_duration)
+        if end_s is not None and end_s < start_s:
+            end_s = start_s
+
+        duration_s = max(0.0, (end_s - start_s) if end_s is not None else probe_duration)
+        return start_s, end_s, duration_s
 
 
 __all__ = ["LocalMediaPipeline"]

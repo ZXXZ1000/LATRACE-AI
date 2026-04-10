@@ -57,12 +57,17 @@ def _window_payload_summary(payloads: list[dict[str, Any]]) -> list[dict[str, An
                 "t_start_s": payload.get("t_start_s"),
                 "t_end_s": payload.get("t_end_s"),
                 "clip_frames": len(payload.get("clip_frames") or []),
+                "representative_frames": len(payload.get("representative_frames") or []),
                 "face_frames": len(payload.get("face_frames") or []),
                 "visual_tracks": len(payload.get("visual_tracks") or []),
                 "speaker_tracks": len(payload.get("speaker_tracks") or []),
                 "face_voice_links": len(payload.get("face_voice_links") or []),
                 "utterances": len(payload.get("utterances") or []),
                 "evidence": len(payload.get("evidence") or []),
+                "segment_vector_dim": int(
+                    ((payload.get("segment_visual_profile") or {}).get("vector_summary") or {}).get("dim")
+                    or 0
+                ),
             }
         )
     return summary

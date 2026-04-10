@@ -3,10 +3,16 @@ from __future__ import annotations
 import base64
 import logging
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
+from modules.media_graph_compiler.adapters.ops.audio_vad import (
+    compact_audio_b64_to_speech_islands,
+    detect_speech_spans_b64,
+    remap_compacted_segments_to_original,
+)
 from modules.media_graph_compiler.adapters.ops.audio_segments import (
     audio_duration_seconds,
 )
@@ -14,6 +20,8 @@ from modules.media_graph_compiler.adapters.ops.audio_segments import (
 _DIARIZATION_PIPELINE = None
 _LAST_DIARIZATION_STATUS: Dict[str, Any] = {}
 _LOG = logging.getLogger(__name__)
+_DEFAULT_SEGMENTATION_STEP = 0.18
+_LONG_AUDIO_SEGMENTATION_STEPS: tuple[tuple[float, float], ...] = ()
 
 
 def _model_id() -> str:
@@ -26,6 +34,8 @@ def _resolve_device() -> str:
     override = str(os.getenv("MGC_SPEAKER_DEVICE", "")).strip().lower()
     if override in {"cpu", "cuda", "mps"}:
         return override
+    if sys.platform == "darwin":
+        return "cpu"
     try:
         import torch  # type: ignore
 
@@ -36,6 +46,99 @@ def _resolve_device() -> str:
     except Exception:
         pass
     return "cpu"
+
+
+def _adaptive_segmentation_step(duration_s: float | None) -> float:
+    duration_value = max(0.0, float(duration_s or 0.0))
+    for threshold_s, step in _LONG_AUDIO_SEGMENTATION_STEPS:
+        if duration_value >= float(threshold_s):
+            return float(step)
+    return _DEFAULT_SEGMENTATION_STEP
+
+
+def _resolve_segmentation_step(duration_s: float | None = None) -> float:
+    raw = str(os.getenv("MGC_DIARIZATION_SEGMENTATION_STEP") or "").strip()
+    if not raw:
+        return _adaptive_segmentation_step(duration_s)
+    try:
+        value = float(raw)
+    except ValueError:
+        _LOG.warning(
+            "invalid MGC_DIARIZATION_SEGMENTATION_STEP=%r, fallback=%s",
+            raw,
+            _adaptive_segmentation_step(duration_s),
+        )
+        return _adaptive_segmentation_step(duration_s)
+    if 0.0 < value <= 1.0:
+        return value
+    _LOG.warning(
+        "out-of-range MGC_DIARIZATION_SEGMENTATION_STEP=%r, fallback=%s",
+        raw,
+        _adaptive_segmentation_step(duration_s),
+    )
+    return _adaptive_segmentation_step(duration_s)
+
+
+def _resolve_batch_size(name: str, default: int) -> int:
+    raw = str(os.getenv(name) or "").strip()
+    if not raw:
+        return max(1, int(default))
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return max(1, int(default))
+
+
+def _as_bool(value: str | None, default: bool = False) -> bool:
+    if value is None:
+        return bool(default)
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
+def _apply_runtime_config(
+    pipeline: Any,
+    *,
+    processing_duration_s: float | None = None,
+) -> Dict[str, Any]:
+    segmentation_step = _resolve_segmentation_step(processing_duration_s)
+    segmentation_duration_s = None
+    device = _resolve_device()
+    segmentation_batch_size = _resolve_batch_size(
+        "MGC_DIARIZATION_SEGMENTATION_BATCH_SIZE",
+        1 if device == "cpu" else 4,
+    )
+    embedding_batch_size = _resolve_batch_size(
+        "MGC_DIARIZATION_EMBEDDING_BATCH_SIZE",
+        1 if device == "cpu" else 8,
+    )
+    try:
+        if hasattr(pipeline, "segmentation_step"):
+            pipeline.segmentation_step = segmentation_step
+        if hasattr(pipeline, "segmentation_batch_size"):
+            pipeline.segmentation_batch_size = segmentation_batch_size
+        if hasattr(pipeline, "embedding_batch_size"):
+            pipeline.embedding_batch_size = embedding_batch_size
+        segmentation_model = getattr(pipeline, "_segmentation", None)
+        if segmentation_model is not None:
+            duration = float(
+                getattr(segmentation_model, "duration", 0.0) or 0.0
+            )
+            if duration > 0.0 and hasattr(segmentation_model, "step"):
+                segmentation_model.step = segmentation_step * duration
+                segmentation_duration_s = duration
+    except Exception as exc:
+        _LOG.warning("speaker diarization runtime config failed: %s", exc)
+    return {
+        "segmentation_step": segmentation_step,
+        "segmentation_window_duration_s": segmentation_duration_s,
+        "segmentation_batch_size": segmentation_batch_size,
+        "embedding_batch_size": embedding_batch_size,
+    }
 
 
 def _ensure_pipeline():
@@ -129,21 +232,97 @@ def diarize_audio_b64(
     audio_b64: bytes,
     *,
     min_turn_length_s: float = 0.4,
+    enable_vad: bool = True,
 ) -> List[Dict[str, Any]]:
     global _LAST_DIARIZATION_STATUS
+    original_duration_s = audio_duration_seconds(audio_b64)
+    runtime_config = {
+        "segmentation_step": _resolve_segmentation_step(original_duration_s),
+        "segmentation_window_duration_s": None,
+        "segmentation_batch_size": None,
+        "embedding_batch_size": None,
+    }
+    timeline_map: List[Dict[str, Any]] = []
+    processing_audio_b64 = audio_b64
+    vad_status: Dict[str, Any] = {
+        "enabled": bool(enable_vad),
+        "applied": False,
+        "speech_span_count": 0,
+        "speech_ratio": 1.0,
+        "original_duration_s": original_duration_s,
+        "processing_duration_s": original_duration_s,
+        "compaction_allowed": bool(
+            enable_vad
+            and _as_bool(
+                os.getenv("MGC_DIARIZATION_ENABLE_VAD_COMPACTION"),
+                False,
+            )
+        ),
+    }
+    if bool(vad_status.get("compaction_allowed")):
+        try:
+            speech_spans = detect_speech_spans_b64(
+                audio_b64,
+                min_speech_s=max(float(min_turn_length_s), 0.35),
+                min_silence_s=float(
+                    os.getenv("MGC_DIARIZATION_VAD_MIN_SILENCE_S") or 0.45
+                ),
+                pad_s=float(os.getenv("MGC_DIARIZATION_VAD_PAD_S") or 0.12),
+                seek_step_ms=int(os.getenv("MGC_DIARIZATION_VAD_SEEK_STEP_MS") or 20),
+                merge_gap_s=float(os.getenv("MGC_DIARIZATION_VAD_MERGE_GAP_S") or 0.18),
+            )
+            vad_status["speech_span_count"] = len(speech_spans)
+            compacted = compact_audio_b64_to_speech_islands(
+                audio_b64,
+                speech_spans,
+                join_gap_s=float(os.getenv("MGC_DIARIZATION_VAD_JOIN_GAP_S") or 0.12),
+            )
+            speech_ratio = float(compacted.get("speech_ratio") or 1.0)
+            processing_duration_s = float(
+                compacted.get("compacted_duration_s") or original_duration_s
+            )
+            vad_status.update(
+                {
+                    "speech_ratio": speech_ratio,
+                    "original_duration_s": float(
+                        compacted.get("original_duration_s") or original_duration_s
+                    ),
+                    "processing_duration_s": processing_duration_s,
+                }
+            )
+            if (
+                bool(compacted.get("applied"))
+                and len(speech_spans) >= 2
+                and speech_ratio < 0.96
+            ):
+                processing_audio_b64 = compacted.get("audio_b64") or audio_b64
+                timeline_map = list(compacted.get("timeline_map") or [])
+                vad_status["applied"] = True
+                runtime_config["segmentation_step"] = _resolve_segmentation_step(
+                    processing_duration_s
+                )
+        except Exception as exc:
+            vad_status["error"] = f"{type(exc).__name__}: {exc}"
     try:
-        raw = base64.b64decode(audio_b64)
+        raw = base64.b64decode(processing_audio_b64)
     except Exception as exc:
         _LAST_DIARIZATION_STATUS = {
             "ok": False,
             "runtime": "pyannote_diarization",
             "model_id": _model_id(),
             "device": _resolve_device(),
+            "segmentation_step": runtime_config["segmentation_step"],
+            "segmentation_window_duration_s": runtime_config[
+                "segmentation_window_duration_s"
+            ],
+            "segmentation_batch_size": runtime_config["segmentation_batch_size"],
+            "embedding_batch_size": runtime_config["embedding_batch_size"],
             "segment_count": 0,
             "speaker_count": 0,
             "fallback_used": True,
             "reason": "invalid_base64",
             "error": f"{type(exc).__name__}: {exc}",
+            "vad": vad_status,
         }
         return []
 
@@ -154,6 +333,12 @@ def diarize_audio_b64(
             tmp_path = Path(tmp.name)
 
         pipeline = _ensure_pipeline()
+        runtime_config = _apply_runtime_config(
+            pipeline,
+            processing_duration_s=float(
+                vad_status.get("processing_duration_s") or original_duration_s
+            ),
+        )
         diarization = pipeline(str(tmp_path))
         annotation = _extract_annotation(diarization)
 
@@ -175,8 +360,15 @@ def diarize_audio_b64(
                     "metadata": {
                         "runtime": "pyannote_diarization",
                         "speaker_label": speaker_key,
+                        "vad_compacted": bool(vad_status.get("applied")),
                     },
                 }
+            )
+        if timeline_map:
+            segments = remap_compacted_segments_to_original(
+                segments,
+                timeline_map,
+                min_duration_s=min_turn_length_s,
             )
         merged = _merge_adjacent(segments)
         if merged:
@@ -185,11 +377,18 @@ def diarize_audio_b64(
                 "runtime": "pyannote_diarization",
                 "model_id": _model_id(),
                 "device": _resolve_device(),
+                "segmentation_step": runtime_config["segmentation_step"],
+                "segmentation_window_duration_s": runtime_config[
+                    "segmentation_window_duration_s"
+                ],
+                "segmentation_batch_size": runtime_config["segmentation_batch_size"],
+                "embedding_batch_size": runtime_config["embedding_batch_size"],
                 "segment_count": len(merged),
                 "speaker_count": len(label_map),
                 "fallback_used": False,
                 "reason": None,
                 "error": None,
+                "vad": vad_status,
             }
             return merged
 
@@ -203,11 +402,18 @@ def diarize_audio_b64(
             "runtime": "pyannote_diarization",
             "model_id": _model_id(),
             "device": _resolve_device(),
+            "segmentation_step": runtime_config["segmentation_step"],
+            "segmentation_window_duration_s": runtime_config[
+                "segmentation_window_duration_s"
+            ],
+            "segmentation_batch_size": runtime_config["segmentation_batch_size"],
+            "embedding_batch_size": runtime_config["embedding_batch_size"],
             "segment_count": 0,
             "speaker_count": 0,
             "fallback_used": True,
             "reason": "empty_diarization",
             "error": None,
+            "vad": vad_status,
         }
         return fallback
     except Exception as exc:
@@ -217,11 +423,18 @@ def diarize_audio_b64(
             "runtime": "pyannote_diarization",
             "model_id": _model_id(),
             "device": _resolve_device(),
+            "segmentation_step": runtime_config["segmentation_step"],
+            "segmentation_window_duration_s": runtime_config[
+                "segmentation_window_duration_s"
+            ],
+            "segmentation_batch_size": runtime_config["segmentation_batch_size"],
+            "embedding_batch_size": runtime_config["embedding_batch_size"],
             "segment_count": 0,
             "speaker_count": 0,
             "fallback_used": True,
             "reason": "pipeline_error",
             "error": error,
+            "vad": vad_status,
         }
         return _fallback_segments(
             audio_b64,

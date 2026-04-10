@@ -44,6 +44,16 @@ class AudioOperatorAdapter:
             return self._normalize_legacy_shape(source_id, stage_output.get("id2audios", {}))
         return [], [], []
 
+    def extract_stage_stats(
+        self,
+        *,
+        stage_output: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        stats = stage_output.get("stage_stats")
+        if isinstance(stats, Mapping):
+            return dict(stats)
+        return {}
+
     def _normalize_current_shape(
         self,
         stage_output: Mapping[str, Any],

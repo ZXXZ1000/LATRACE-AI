@@ -87,7 +87,7 @@ def compile_audio(
     stage_timings_ms["planning_ms"] = round((perf_counter() - started_at) * 1000.0, 3)
 
     started_at = perf_counter()
-    speaker_tracks, utterances, audio_evidence = _load_or_run_speaker_stage(
+    speaker_tracks, utterances, audio_evidence, speaker_stage_stats = _load_or_run_speaker_stage(
         request=request,
         operator_bus=operator_bus,
         asset_store=asset_store,
@@ -191,6 +191,7 @@ def compile_audio(
             "utterances": len(utterances),
             "events": len(graph_request.events) if graph_request else 0,
             "stage_timings_ms": stage_timings_ms,
+            "speaker_stage": speaker_stage_stats,
             "optimization": optimization_plan,
         },
     )
@@ -216,12 +217,12 @@ def _load_or_run_speaker_stage(*, request: CompileAudioRequest, operator_bus, as
     adapter = AudioOperatorAdapter()
     if request.asset_inputs.speaker_tracks is not None:
         payload = asset_store.load_asset(request.asset_inputs.speaker_tracks)
-        return adapter.normalize(source_id=source_id, stage_output=payload)
+        return (*adapter.normalize(source_id=source_id, stage_output=payload), adapter.extract_stage_stats(stage_output=payload))
     if not request.enable_audio_operator:
-        return [], [], []
+        return [], [], [], {}
     operator = _resolve_operator(operator_bus, SPEAKER_TRACK_STAGE, LEGACY_SPEAKER_STAGE)
     if operator is None:
-        return [], [], []
+        return [], [], [], {}
     payload = operator(
         {
             "request": request,
@@ -231,7 +232,7 @@ def _load_or_run_speaker_stage(*, request: CompileAudioRequest, operator_bus, as
             **runtime_inputs,
         }
     ) or {}
-    return adapter.normalize(source_id=source_id, stage_output=payload)
+    return (*adapter.normalize(source_id=source_id, stage_output=payload), adapter.extract_stage_stats(stage_output=payload))
 
 
 def _build_window_digests(request: CompileAudioRequest, backbone, utterances, speaker_tracks, evidence):

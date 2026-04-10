@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from modules.media_graph_compiler.adapters.media_probe import MediaBackbone, MediaSegmentRecord
 from modules.media_graph_compiler.domain import (
@@ -47,10 +47,17 @@ class GraphCompiler:
         trace: CompileTrace,
     ) -> GraphUpsertRequest:
         segments = [self._segment_to_graph(routing, segment) for segment in backbone.segments]
-        entities = self._build_entities(routing, backbone.segments[0].source_id if backbone.segments else "unknown", visual_tracks, speaker_tracks)
-        events = self._build_events(routing, backbone.segments[0].source_id if backbone.segments else "unknown", window_digests)
+        source_id = backbone.segments[0].source_id if backbone.segments else "unknown"
+        entities = self._build_entities(routing, source_id, visual_tracks, speaker_tracks)
+        events = self._build_events(
+            routing,
+            source_id,
+            window_digests,
+            visual_tracks=visual_tracks,
+            speaker_tracks=speaker_tracks,
+        )
         utterance_nodes = [self._utterance_to_graph(routing, item) for item in utterances]
-        evidence_nodes = [self._evidence_to_graph(routing, backbone.segments[0].source_id if backbone.segments else "unknown", item) for item in evidence]
+        evidence_nodes = [self._evidence_to_graph(routing, source_id, item) for item in evidence]
         edges = self._build_edges(
             routing=routing,
             backbone=backbone,
@@ -123,15 +130,52 @@ class GraphCompiler:
         routing: MediaRoutingContext,
         source_id: str,
         window_digests: Sequence[WindowDigest],
+        *,
+        visual_tracks: Sequence[VisualTrackRecord],
+        speaker_tracks: Sequence[SpeakerTrackRecord],
     ) -> List[Event]:
         events: List[Event] = []
+        entity_lookup = self._entity_lookup(
+            source_id=source_id,
+            visual_tracks=visual_tracks,
+            speaker_tracks=speaker_tracks,
+        )
         for digest in window_digests:
+            provider_response = dict(
+                (digest.semantic_payload or {}).get("provider_response") or {}
+            )
+            event_payload = self._primary_event_payload(provider_response)
             summary = digest.summary or f"{digest.modality} activity between {digest.t_start_s:.1f}s and {digest.t_end_s:.1f}s"
+            desc = self._normalize_optional_text(
+                event_payload.get("text") or event_payload.get("desc")
+            )
+            if desc == summary:
+                desc = None
+            keywords = self._normalize_text_list(
+                provider_response.get("episodic") or provider_response.get("keywords") or []
+            )
+            tags = self._normalize_text_list(
+                provider_response.get("semantic") or event_payload.get("tags") or []
+            )
+            if "media_compile" not in tags:
+                tags.insert(0, "media_compile")
+            actor_id = self._actor_entity_id(
+                source_id=source_id,
+                actor_tag=event_payload.get("actor_tag"),
+                entity_lookup=entity_lookup,
+            )
             events.append(
                 Event(
                     id=stable_event_id(source_id, digest.window_id, summary),
                     summary=summary,
-                    tags=["media_compile"],
+                    desc=desc,
+                    tags=tags,
+                    keywords=keywords or None,
+                    event_type=self._normalize_optional_text(event_payload.get("event_type")),
+                    action=self._normalize_optional_text(event_payload.get("action")),
+                    actor_id=actor_id,
+                    event_confidence=self._safe_float(event_payload.get("event_confidence")),
+                    evidence_count=len(digest.evidence_refs),
                     tenant_id=routing.tenant_id,
                     user_id=routing.user_id,
                     memory_domain=routing.memory_domain,
@@ -182,12 +226,13 @@ class GraphCompiler:
         events: Sequence[Event],
     ) -> List[GraphEdge]:
         source_id = backbone.segments[0].source_id if backbone.segments else "unknown"
-        visual_entity_by_track = {
-            item.track_id: stable_visual_entity_id(source_id, item.track_id) for item in visual_tracks
-        }
-        speaker_entity_by_track = {
-            item.track_id: stable_speaker_entity_id(source_id, item.track_id) for item in speaker_tracks
-        }
+        entity_lookup = self._entity_lookup(
+            source_id=source_id,
+            visual_tracks=visual_tracks,
+            speaker_tracks=speaker_tracks,
+        )
+        visual_entity_by_track = dict(entity_lookup["visual"])
+        speaker_entity_by_track = dict(entity_lookup["speaker"])
         event_by_window = {digest.window_id: event.id for digest, event in zip(window_digests, events)}
         segment_by_window = {
             key: segment.id
@@ -223,6 +268,24 @@ class GraphCompiler:
                     memory_domain=routing.memory_domain,
                 )
             )
+            for participant_ref in digest.participant_refs:
+                entity_id = self._resolve_entity_id(
+                    source_id=source_id,
+                    ref=participant_ref,
+                    entity_lookup=entity_lookup,
+                )
+                if entity_id is None:
+                    continue
+                edges.append(
+                    GraphEdge(
+                        src_id=event_id,
+                        dst_id=entity_id,
+                        rel_type="INVOLVES",
+                        tenant_id=routing.tenant_id,
+                        user_id=routing.user_id,
+                        memory_domain=routing.memory_domain,
+                    )
+                )
         for utterance in utterances:
             speaker_entity_id = speaker_entity_by_track.get(utterance.speaker_track_id)
             if speaker_entity_id:
@@ -305,5 +368,116 @@ class GraphCompiler:
                         user_id=routing.user_id,
                         memory_domain=routing.memory_domain,
                     )
-                )
+            )
         return edges
+
+    @staticmethod
+    def _entity_lookup(
+        *,
+        source_id: str,
+        visual_tracks: Sequence[VisualTrackRecord],
+        speaker_tracks: Sequence[SpeakerTrackRecord],
+    ) -> Dict[str, Dict[str, str]]:
+        return {
+            "visual": {
+                item.track_id: stable_visual_entity_id(source_id, item.track_id)
+                for item in visual_tracks
+            },
+            "speaker": {
+                item.track_id: stable_speaker_entity_id(source_id, item.track_id)
+                for item in speaker_tracks
+            },
+        }
+
+    @staticmethod
+    def _primary_event_payload(provider_response: Mapping[str, Any]) -> Dict[str, Any]:
+        events = provider_response.get("events") or []
+        if isinstance(events, list):
+            for item in events:
+                if isinstance(item, Mapping):
+                    participants = item.get("participants") or []
+                    actor_tag = None
+                    if isinstance(participants, list) and participants:
+                        first = participants[0]
+                        if isinstance(first, str) and first.strip():
+                            actor_tag = first.strip()
+                    return {
+                        "text": item.get("summary"),
+                        "desc": item.get("desc"),
+                        "event_type": item.get("event_type"),
+                        "action": item.get("action"),
+                        "actor_tag": actor_tag,
+                        "event_confidence": item.get("event_confidence"),
+                        "tags": item.get("tags") or [],
+                    }
+        timeline = provider_response.get("semantic_timeline") or []
+        if isinstance(timeline, list):
+            for item in timeline:
+                if isinstance(item, Mapping):
+                    return dict(item)
+        return {}
+
+    @classmethod
+    def _actor_entity_id(
+        cls,
+        *,
+        source_id: str,
+        actor_tag: Any,
+        entity_lookup: Mapping[str, Mapping[str, str]],
+    ) -> str | None:
+        if not isinstance(actor_tag, str) or not actor_tag.strip():
+            return None
+        return cls._resolve_entity_id(
+            source_id=source_id,
+            ref=actor_tag.strip(),
+            entity_lookup=entity_lookup,
+        )
+
+    @staticmethod
+    def _resolve_entity_id(
+        *,
+        source_id: str,
+        ref: str,
+        entity_lookup: Mapping[str, Mapping[str, str]],
+    ) -> str | None:
+        cleaned = str(ref or "").strip()
+        if not cleaned:
+            return None
+        if cleaned in entity_lookup["visual"]:
+            return entity_lookup["visual"][cleaned]
+        if cleaned in entity_lookup["speaker"]:
+            return entity_lookup["speaker"][cleaned]
+        if cleaned.startswith("face_"):
+            return stable_visual_entity_id(source_id, cleaned)
+        if cleaned.startswith("voice_"):
+            return stable_speaker_entity_id(source_id, cleaned)
+        return None
+
+    @staticmethod
+    def _normalize_text_list(values: Any) -> List[str]:
+        out: List[str] = []
+        if not isinstance(values, list):
+            return out
+        for item in values:
+            if not isinstance(item, str):
+                continue
+            text = item.strip()
+            if text and text not in out:
+                out.append(text)
+        return out
+
+    @staticmethod
+    def _normalize_optional_text(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        return text or None
+
+    @staticmethod
+    def _safe_float(value: Any) -> float | None:
+        try:
+            if value is None:
+                return None
+            return float(value)
+        except Exception:
+            return None

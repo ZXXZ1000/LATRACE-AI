@@ -60,7 +60,6 @@ def compile_video(
     optimization_builder = OptimizationPlanBuilder()
 
     ensure_default_operator_stages(operator_bus)
-    clip_start = float(request.clip_start_s or 0.0)
     started_at = perf_counter()
     runtime_inputs = _prepare_video_runtime_inputs(
         request=request,
@@ -68,18 +67,43 @@ def compile_video(
     )
     stage_timings_ms["prepare_inputs_ms"] = round((perf_counter() - started_at) * 1000.0, 3)
 
+    clip_start = float(runtime_inputs.get("clip_start_s") or request.clip_start_s or 0.0)
     started_at = perf_counter()
-    clip_end = _resolve_clip_end(
-        request,
-        clip_start,
-        request.windowing.video_window_seconds,
-        runtime_duration=runtime_inputs.get("duration_seconds"),
+    runtime_clip_end = runtime_inputs.get("clip_end_s")
+    if runtime_clip_end is not None:
+        clip_end = float(runtime_clip_end)
+    else:
+        clip_end = _resolve_clip_end(
+            request,
+            clip_start,
+            request.windowing.video_window_seconds,
+            runtime_duration=runtime_inputs.get("duration_seconds"),
+        )
+    optimization_plan = optimization_builder.build_video_plan(
+        request=request,
+        runtime_inputs=runtime_inputs,
+    )
+    semantic_windowing = scheduler.resolve_settings(
+        modality="video",
+        clip_start_s=clip_start,
+        clip_end_s=clip_end,
+        policy=request.windowing,
+    )
+    optimization_plan["semantic"].update(
+        {
+            "effective_video_window_seconds": semantic_windowing["window_size_seconds"],
+            "effective_overlap_seconds": semantic_windowing["overlap_seconds"],
+            "effective_step_seconds": semantic_windowing["step_seconds"],
+            "estimated_window_count": semantic_windowing["estimated_window_count"],
+            "adaptive_windowing": bool(semantic_windowing["adaptive"]),
+        }
     )
     windows = scheduler.build_windows(
         modality="video",
         clip_start_s=clip_start,
         clip_end_s=clip_end,
         policy=request.windowing,
+        resolved_settings=semantic_windowing,
     )
     probe_meta = dict(request.metadata.get("probe_meta") or {})
     if request.windowing.video_fps:
@@ -91,10 +115,6 @@ def compile_video(
         probe_meta=probe_meta,
         scenes=windows,
         default_modality="video",
-    )
-    optimization_plan = optimization_builder.build_video_plan(
-        request=request,
-        runtime_inputs=runtime_inputs,
     )
     stage_timings_ms["planning_ms"] = round((perf_counter() - started_at) * 1000.0, 3)
 
@@ -111,7 +131,7 @@ def compile_video(
     stage_timings_ms["visual_stage_ms"] = round((perf_counter() - started_at) * 1000.0, 3)
 
     started_at = perf_counter()
-    speaker_tracks, utterances, audio_evidence = _load_or_run_speaker_stage(
+    speaker_tracks, utterances, audio_evidence, speaker_stage_stats = _load_or_run_speaker_stage(
         request=request,
         operator_bus=operator_bus,
         asset_store=asset_store,
@@ -171,25 +191,27 @@ def compile_video(
         )
     stage_timings_ms["asset_persist_ms"] = round((perf_counter() - started_at) * 1000.0, 3)
 
+    window_payloads = packer.build_video_window_payloads(
+        backbone=backbone,
+        visual_tracks=visual_tracks,
+        speaker_tracks=speaker_tracks,
+        face_voice_links=face_voice_links,
+        utterances=utterances,
+        evidence=evidence,
+        clip_frames=runtime_inputs.get("clip_frame_paths") or [],
+        face_frames=runtime_inputs.get("face_frame_paths") or [],
+        frame_timestamps_s=runtime_inputs.get("frame_timestamps_s") or [],
+        max_frames_per_window=int(
+            optimization_plan.get("visual", {}).get("max_frames_per_window")
+            or 0
+        ),
+    )
+    window_payload_stats = _summarize_window_payloads(window_payloads)
     started_at = perf_counter()
     window_digests = _build_window_digests(
         request=request,
         backbone=backbone,
-        window_payloads=packer.build_video_window_payloads(
-            backbone=backbone,
-            visual_tracks=visual_tracks,
-            speaker_tracks=speaker_tracks,
-            face_voice_links=face_voice_links,
-            utterances=utterances,
-            evidence=evidence,
-            clip_frames=runtime_inputs.get("clip_frame_paths") or [],
-            face_frames=runtime_inputs.get("face_frame_paths") or [],
-            frame_timestamps_s=runtime_inputs.get("frame_timestamps_s") or [],
-            max_frames_per_window=int(
-                optimization_plan.get("visual", {}).get("max_frames_per_window")
-                or 0
-            ),
-        ),
+        window_payloads=window_payloads,
         utterances=utterances,
         visual_tracks=visual_tracks,
         speaker_tracks=speaker_tracks,
@@ -252,7 +274,10 @@ def compile_video(
             "utterances": len(utterances),
             "events": len(graph_request.events) if graph_request else 0,
             "stage_timings_ms": stage_timings_ms,
+            "speaker_stage": speaker_stage_stats,
             "optimization": optimization_plan,
+            "semantic_windowing": semantic_windowing,
+            "semantic_windows": window_payload_stats,
         },
     )
 
@@ -273,6 +298,24 @@ def _resolve_clip_end(
     if runtime_duration is not None:
         return clip_start + float(runtime_duration)
     return clip_start + default_window
+
+
+def _summarize_window_payloads(window_payloads: List[Dict[str, Any]]) -> Dict[str, Any]:
+    vector_dims = [
+        int(
+            ((payload.get("segment_visual_profile") or {}).get("vector_summary") or {}).get("dim")
+            or 0
+        )
+        for payload in window_payloads
+    ]
+    representative_counts = [len(payload.get("representative_frames") or []) for payload in window_payloads]
+    return {
+        "windows": len(window_payloads),
+        "representative_frames_total": sum(representative_counts),
+        "representative_frames_max": max(representative_counts, default=0),
+        "image_vector_windows": sum(1 for dim in vector_dims if dim > 0),
+        "image_vector_dim_max": max(vector_dims, default=0),
+    }
 
 
 def _load_or_run_visual_stage(*, request: CompileVideoRequest, operator_bus, asset_store: LocalOperatorAssetStore, source_id: str, runtime_inputs: Dict[str, Any], optimization_plan: Dict[str, Any], backbone):
@@ -302,12 +345,12 @@ def _load_or_run_speaker_stage(*, request: CompileVideoRequest, operator_bus, as
     adapter = AudioOperatorAdapter()
     if request.asset_inputs.speaker_tracks is not None:
         payload = asset_store.load_asset(request.asset_inputs.speaker_tracks)
-        return adapter.normalize(source_id=source_id, stage_output=payload)
+        return (*adapter.normalize(source_id=source_id, stage_output=payload), adapter.extract_stage_stats(stage_output=payload))
     if not request.enable_audio_operator:
-        return [], [], []
+        return [], [], [], {}
     operator = _resolve_operator(operator_bus, SPEAKER_TRACK_STAGE, LEGACY_SPEAKER_STAGE)
     if operator is None:
-        return [], [], []
+        return [], [], [], {}
     payload = operator(
         {
             "request": request,
@@ -318,7 +361,7 @@ def _load_or_run_speaker_stage(*, request: CompileVideoRequest, operator_bus, as
             **runtime_inputs,
         }
     ) or {}
-    return adapter.normalize(source_id=source_id, stage_output=payload)
+    return (*adapter.normalize(source_id=source_id, stage_output=payload), adapter.extract_stage_stats(stage_output=payload))
 
 
 def _build_window_digests(
@@ -472,6 +515,9 @@ def _prepare_video_runtime_inputs(
     prepared = local_media.prepare_video_inputs(
         file_path=file_path,
         artifacts_dir=artifacts_dir,
+        clip_start_s=float(request.clip_start_s or 0.0),
+        clip_end_s=(float(request.clip_end_s) if request.clip_end_s is not None else None),
+        requested_duration_s=runtime_inputs.get("duration_seconds"),
         sample_fps=sample_fps,
         clip_px=int(request.metadata.get("clip_resize_px") or 256),
         face_px=int(request.metadata.get("face_resize_px") or 640),

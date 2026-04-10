@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
-from typing import Any, Dict, List, Mapping
+from time import perf_counter
+from typing import Any, Dict, List, Mapping, Sequence
 
 from modules.media_graph_compiler.adapters.ops.asr_local import (
     get_last_asr_status,
@@ -54,6 +55,58 @@ def _overlap(start_a: float, end_a: float, start_b: float, end_b: float) -> floa
     return max(0.0, min(float(end_a), float(end_b)) - max(float(start_a), float(start_b)))
 
 
+def _elapsed_ms(started_at: float) -> float:
+    return round((perf_counter() - started_at) * 1000.0, 3)
+
+
+def _as_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return bool(default)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return bool(value)
+
+
+def _chunk_duration_s(chunk: Mapping[str, Any]) -> float:
+    start_s = float(chunk.get("t_start_s") or 0.0)
+    end_s = float(chunk.get("t_end_s") or start_s)
+    return max(0.0, end_s - start_s)
+
+
+def _select_embedding_files(
+    chunk_records: Sequence[Mapping[str, Any]],
+    *,
+    max_chunks: int,
+) -> List[str]:
+    if max_chunks <= 0:
+        max_chunks = len(chunk_records)
+    usable = [
+        dict(item)
+        for item in chunk_records
+        if str(item.get("file_path") or "").strip()
+    ]
+    if len(usable) <= max_chunks:
+        return [str(item["file_path"]) for item in usable]
+
+    ranked = sorted(
+        usable,
+        key=lambda item: (
+            _chunk_duration_s(item),
+            -float(item.get("t_start_s") or 0.0),
+        ),
+        reverse=True,
+    )
+    selected = ranked[:max_chunks]
+    selected.sort(key=lambda item: float(item.get("t_start_s") or 0.0))
+    return [str(item["file_path"]) for item in selected]
+
+
 def _normalize_asr_segments(transcript_segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     for transcript in transcript_segments or []:
@@ -87,8 +140,10 @@ class LocalSpeakerStage:
     """
 
     def run(self, ctx: Mapping[str, Any]) -> Dict[str, Any]:
+        total_started_at = perf_counter()
         source_id = str(ctx.get("source_id") or "unknown")
         request = ctx.get("request")
+        media_time_offset_s = float(ctx.get("media_time_offset_s") or 0.0)
         artifacts_dir = str(
             (request.metadata.get("artifacts_dir") if request else None)
             or ".artifacts/media_graph_compiler"
@@ -106,14 +161,24 @@ class LocalSpeakerStage:
         evidence: List[Dict[str, Any]] = []
         speaker_tracks: List[Dict[str, Any]] = []
         min_turn_length_s = float(audio_plan.get("min_turn_length_s") or 0.4)
-        diarized = diarize_audio_b64(audio_b64, min_turn_length_s=min_turn_length_s)
+        enable_vad = _as_bool(audio_plan.get("enable_vad"), True)
+        diarization_started_at = perf_counter()
+        diarized = diarize_audio_b64(
+            audio_b64,
+            min_turn_length_s=min_turn_length_s,
+            enable_vad=enable_vad,
+        )
+        diarization_ms = _elapsed_ms(diarization_started_at)
         diarization_status = get_last_diarization_status()
+        chunk_slice_started_at = perf_counter()
         chunk_payloads = slice_audio_b64_segments(
             audio_b64,
             [(float(item["t_start_s"]), float(item["t_end_s"])) for item in diarized],
         )
+        chunk_slice_ms = _elapsed_ms(chunk_slice_started_at)
 
         track_files: Dict[str, List[str]] = {}
+        track_chunk_records: Dict[str, List[Dict[str, Any]]] = {}
         track_utterances: Dict[str, List[str]] = {}
         track_evidence: Dict[str, List[str]] = {}
         track_starts: Dict[str, List[float]] = {}
@@ -121,6 +186,14 @@ class LocalSpeakerStage:
         track_asr_fallback_chunks: Dict[str, int] = {}
         track_asr_errors: Dict[str, List[str]] = {}
         track_asr_segments: Dict[str, int] = {}
+        enable_speaker_embedding = _as_bool(
+            audio_plan.get("enable_speaker_embedding"),
+            True,
+        )
+        max_embedding_chunks_per_track = int(
+            audio_plan.get("max_embedding_chunks_per_track") or 4
+        )
+        asr_started_at = perf_counter()
         full_audio_transcripts = transcribe_audio_b64(
             audio_b64,
             language=None,
@@ -128,6 +201,7 @@ class LocalSpeakerStage:
             device="auto",
             strict=False,
         )
+        asr_ms = _elapsed_ms(asr_started_at)
         asr_status = get_last_asr_status()
         asr_runtime = str(
             asr_status.get("runtime")
@@ -140,18 +214,21 @@ class LocalSpeakerStage:
             if placeholder_only:
                 normalized_full_transcripts = []
 
+        align_started_at = perf_counter()
         for diar_item, chunk_b64 in zip(diarized, chunk_payloads):
             if not chunk_b64:
                 continue
             track_id = str(diar_item["track_id"])
             diar_start_s = float(diar_item["t_start_s"])
             diar_end_s = float(diar_item["t_end_s"])
+            diar_start_abs_s = diar_start_s + media_time_offset_s
+            diar_end_abs_s = diar_end_s + media_time_offset_s
             evidence_id = stable_hash_id(
                 "evaudio",
                 source_id,
                 track_id,
-                diar_start_s,
-                diar_end_s,
+                diar_start_abs_s,
+                diar_end_abs_s,
             )
             file_path = self._write_audio_chunk(
                 artifacts_dir=artifacts_dir,
@@ -160,6 +237,14 @@ class LocalSpeakerStage:
             )
             if file_path:
                 track_files.setdefault(track_id, []).append(file_path)
+                track_chunk_records.setdefault(track_id, []).append(
+                    {
+                        "file_path": file_path,
+                        "t_start_s": diar_start_abs_s,
+                        "t_end_s": diar_end_abs_s,
+                        "evidence_id": evidence_id,
+                    }
+                )
             chunk_transcripts: List[Dict[str, Any]] = []
             for transcript in normalized_full_transcripts:
                 seg_start = float(transcript.get("t_start_s") or 0.0)
@@ -197,20 +282,22 @@ class LocalSpeakerStage:
                 end_s = float(transcript.get("t_end_s") or start_s)
                 if end_s < start_s:
                     end_s = start_s
+                start_abs_s = start_s + media_time_offset_s
+                end_abs_s = end_s + media_time_offset_s
                 text = str(transcript.get("asr") or "").strip() or "(audio)"
                 utterance_id = stable_utterance_id(
                     source_id,
                     track_id,
-                    start_s,
-                    end_s,
+                    start_abs_s,
+                    end_abs_s,
                     text,
                 )
                 utterances.append(
                     {
                         "utterance_id": utterance_id,
                         "speaker_track_id": track_id,
-                        "t_start_s": start_s,
-                        "t_end_s": end_s,
+                        "t_start_s": start_abs_s,
+                        "t_end_s": end_abs_s,
                         "text": text,
                         "evidence_refs": [evidence_id],
                         "metadata": {
@@ -227,16 +314,16 @@ class LocalSpeakerStage:
                 )
                 chunk_utterance_ids.append(utterance_id)
                 transcript_texts.append(text)
-                track_starts.setdefault(track_id, []).append(start_s)
-                track_ends.setdefault(track_id, []).append(end_s)
+                track_starts.setdefault(track_id, []).append(start_abs_s)
+                track_ends.setdefault(track_id, []).append(end_abs_s)
 
             evidence.append(
                 {
                     "evidence_id": evidence_id,
                     "kind": "audio_chunk",
                     "file_path": file_path,
-                    "t_start_s": diar_start_s,
-                    "t_end_s": diar_end_s,
+                    "t_start_s": diar_start_abs_s,
+                    "t_end_s": diar_end_abs_s,
                     "metadata": {
                         "algorithm": "speaker_diarization",
                         "algorithm_version": "v2",
@@ -254,13 +341,24 @@ class LocalSpeakerStage:
             )
             track_utterances.setdefault(track_id, []).extend(chunk_utterance_ids)
             track_evidence.setdefault(track_id, []).append(evidence_id)
+        align_ms = _elapsed_ms(align_started_at)
 
+        embedding_started_at = perf_counter()
         for track_id, utterance_ids in track_utterances.items():
             starts = track_starts.get(track_id) or []
             ends = track_ends.get(track_id) or []
             if not starts:
                 continue
-            embedding = build_track_embedding(track_files.get(track_id) or [])
+            embedding_runtime = "disabled"
+            embedding_files: List[str] = []
+            embedding: List[float] = []
+            if enable_speaker_embedding:
+                embedding_files = _select_embedding_files(
+                    track_chunk_records.get(track_id) or [],
+                    max_chunks=max_embedding_chunks_per_track,
+                )
+                embedding = build_track_embedding(embedding_files)
+                embedding_runtime = speaker_embedding_runtime()
             track_runtime_counts = {asr_runtime: 1}
             track_errors = list(track_asr_errors.get(track_id) or [])
             speaker_tracks.append(
@@ -272,7 +370,8 @@ class LocalSpeakerStage:
                     "evidence_refs": track_evidence.get(track_id) or [],
                     "metadata": {
                         "runtime": "pyannote_wespeaker_style",
-                        "embedding_runtime": speaker_embedding_runtime(),
+                        "embedding_runtime": embedding_runtime,
+                        "speaker_embedding_enabled": enable_speaker_embedding,
                         "speaker_strategy": "anonymous_local_tracks",
                         "utterance_count": len(utterance_ids),
                         "embedding_dim": len(embedding),
@@ -282,6 +381,12 @@ class LocalSpeakerStage:
                             "fallback_used": bool(diarization_status.get("fallback_used")),
                             "reason": diarization_status.get("reason"),
                             "error": diarization_status.get("error"),
+                            "model_id": diarization_status.get("model_id"),
+                            "device": diarization_status.get("device"),
+                            "segmentation_step": diarization_status.get("segmentation_step"),
+                            "segmentation_window_duration_s": diarization_status.get(
+                                "segmentation_window_duration_s"
+                            ),
                             "speaker_count": diarization_status.get("speaker_count"),
                             "segment_count": diarization_status.get("segment_count"),
                         },
@@ -293,16 +398,60 @@ class LocalSpeakerStage:
                             "errors": track_errors,
                             "mode": "full_audio_asr_align",
                         },
+                        "embedding_chunk_count": len(track_chunk_records.get(track_id) or []),
+                        "embedding_selected_chunk_count": len(embedding_files),
                     },
                 }
             )
+        embedding_ms = _elapsed_ms(embedding_started_at)
+
+        stage_stats = {
+            "runtime": "local_speaker_stage_v2",
+            "timings_ms": {
+                "diarization_ms": diarization_ms,
+                "chunk_slice_ms": chunk_slice_ms,
+                "full_asr_ms": asr_ms,
+                "align_and_materialize_ms": align_ms,
+                "embedding_ms": embedding_ms,
+                "total_ms": _elapsed_ms(total_started_at),
+            },
+            "counts": {
+                "diarized_segments": len(diarized),
+                "chunk_payloads": len(chunk_payloads),
+                "speaker_tracks": len(speaker_tracks),
+                "utterances": len(utterances),
+                "evidence": len(evidence),
+                "transcript_segments": len(normalized_full_transcripts),
+            },
+            "embedding_enabled": enable_speaker_embedding,
+            "asr_runtime": asr_runtime,
+            "diarization_runtime": diarization_status.get("runtime"),
+            "diarization_model_id": diarization_status.get("model_id"),
+            "diarization_device": diarization_status.get("device"),
+            "diarization_segmentation_step": diarization_status.get(
+                "segmentation_step"
+            ),
+            "diarization_segmentation_window_duration_s": diarization_status.get(
+                "segmentation_window_duration_s"
+            ),
+            "diarization_segmentation_batch_size": diarization_status.get(
+                "segmentation_batch_size"
+            ),
+            "diarization_embedding_batch_size": diarization_status.get(
+                "embedding_batch_size"
+            ),
+            "asr_fallback_used": bool(asr_status.get("fallback_used")),
+            "diarization_fallback_used": bool(diarization_status.get("fallback_used")),
+            "vad": diarization_status.get("vad") or {},
+        }
 
         if not speaker_tracks:
-            return {"speaker_tracks": [], "utterances": [], "evidence": []}
+            return {"speaker_tracks": [], "utterances": [], "evidence": [], "stage_stats": stage_stats}
         return {
             "speaker_tracks": speaker_tracks,
             "utterances": utterances,
             "evidence": evidence,
+            "stage_stats": stage_stats,
         }
 
     @staticmethod

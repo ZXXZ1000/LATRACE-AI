@@ -64,6 +64,8 @@ def test_optimization_plan_builder_exposes_video_stage_knobs() -> None:
     assert plan["system"]["prefer_asset_replay"] is True
     assert plan["visual"]["enable_frame_dedup"] is True
     assert plan["visual"]["max_frames_per_window"] == 12
+    assert plan["audio"]["enable_speaker_embedding"] is True
+    assert plan["audio"]["max_embedding_chunks_per_track"] == 4
     assert plan["audio"]["enable_asr_rtf_adaptation"] is True
     assert plan["semantic"]["allow_frame_bundle"] is True
 
@@ -81,4 +83,6 @@ def test_optimization_plan_builder_exposes_audio_stage_knobs() -> None:
     assert plan["system"]["drop_full_video_payload"] is True
     assert plan["audio"]["enable_vad"] is True
     assert plan["audio"]["min_turn_length_s"] == 0.4
+    assert plan["audio"]["enable_speaker_embedding"] is True
+    assert plan["audio"]["max_embedding_chunks_per_track"] == 4
     assert plan["semantic"]["audio_chunk_seconds"] == 5.0

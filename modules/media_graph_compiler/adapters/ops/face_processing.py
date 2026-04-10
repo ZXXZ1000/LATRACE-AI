@@ -22,6 +22,7 @@ cluster_min_size = int(processing_config.get("face_cluster_min_size", 3))
 cluster_distance_threshold = float(processing_config.get("face_cluster_distance_threshold", 0.5))
 
 _FACE_APP = None
+_FACE_APP_CONFIG_KEY = None
 
 
 @contextmanager
@@ -46,8 +47,32 @@ def _suppress_native_output():
 
 
 def _ensure_face_app():
-    global _FACE_APP
-    if _FACE_APP is not None:
+    global _FACE_APP, _FACE_APP_CONFIG_KEY
+    try:
+        from insightface.app import FaceAnalysis  # type: ignore
+    except Exception as exc:
+        logger.warning("face_processing: failed to import FaceAnalysis, fallback to no-op. err=%s", exc)
+        _FACE_APP = None
+        _FACE_APP_CONFIG_KEY = None
+        return None
+
+    providers_env = os.getenv("INSIGHTFACE_PROVIDERS")
+    if providers_env:
+        providers = tuple(p.strip() for p in providers_env.split(",") if p.strip())
+    else:
+        providers = ("CoreMLExecutionProvider", "CPUExecutionProvider")
+
+    allowed_modules_env = os.getenv("MGC_FACE_ALLOWED_MODULES")
+    if allowed_modules_env is not None:
+        allowed_modules = tuple(
+            module.strip() for module in allowed_modules_env.split(",") if module.strip()
+        ) or None
+    else:
+        # We only need bbox detection + identity embedding on the default mainline.
+        allowed_modules = ("detection", "recognition")
+
+    config_key = (providers, allowed_modules)
+    if _FACE_APP is not None and _FACE_APP_CONFIG_KEY == config_key:
         return _FACE_APP
     try:
         import onnxruntime as _ort  # type: ignore
@@ -64,24 +89,23 @@ def _ensure_face_app():
     except Exception:
         pass
     try:
-        from insightface.app import FaceAnalysis  # type: ignore
-
-        providers_env = os.getenv("INSIGHTFACE_PROVIDERS")
-        if providers_env:
-            providers = [p.strip() for p in providers_env.split(",") if p.strip()]
-        else:
-            providers = ["CoreMLExecutionProvider", "CPUExecutionProvider"]
         with _suppress_native_output():
-            app = FaceAnalysis(name="buffalo_l", providers=providers)
+            app = FaceAnalysis(
+                name="buffalo_l",
+                providers=list(providers),
+                allowed_modules=list(allowed_modules) if allowed_modules is not None else None,
+            )
             try:
-                app.prepare(ctx_id=-1, providers=providers)
+                app.prepare(ctx_id=-1, providers=list(providers))
             except TypeError:
                 app.prepare(ctx_id=-1)
         _FACE_APP = app
+        _FACE_APP_CONFIG_KEY = config_key
         return _FACE_APP
     except Exception as exc:
         logger.warning("face_processing: failed to initialize FaceAnalysis, fallback to no-op. err=%s", exc)
         _FACE_APP = None
+        _FACE_APP_CONFIG_KEY = None
         return None
 
 

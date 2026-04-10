@@ -125,6 +125,8 @@ def process_video_to_fs(
     face_px: int = 640,
     out_base: str = ".artifacts/media_graph_compiler/frames",
     audio_fps: int = 16000,
+    clip_start_s: float = 0.0,
+    clip_end_s: float | None = None,
 ) -> dict:
     """Copied from the legacy FFmpeg dual-stream extractor."""
     os.makedirs(out_base, exist_ok=True)
@@ -140,23 +142,40 @@ def process_video_to_fs(
         f"[s1]scale={int(clip_px)}:-1:flags=bilinear[out1];"
         f"[s2]scale={int(face_px)}:-1:flags=bilinear[out2]"
     )
+    clip_start_s = max(0.0, float(clip_start_s or 0.0))
+    clip_duration_s: float | None = None
+    if clip_end_s is not None:
+        try:
+            clip_end_value = float(clip_end_s)
+            if clip_end_value > clip_start_s:
+                clip_duration_s = clip_end_value - clip_start_s
+        except Exception:
+            clip_duration_s = None
+
     cmd = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
         "-y",
-        "-i",
-        video_path,
-        "-filter_complex",
-        filter_complex,
-        "-map",
-        "[out1]",
-        os.path.join(clip_dir, "%06d.jpg"),
-        "-map",
-        "[out2]",
-        os.path.join(face_dir, "%06d.jpg"),
     ]
+    if clip_start_s > 0.0:
+        cmd.extend(["-ss", f"{clip_start_s:.3f}"])
+    cmd.extend(["-i", video_path])
+    if clip_duration_s is not None and clip_duration_s > 0.0:
+        cmd.extend(["-t", f"{clip_duration_s:.3f}"])
+    cmd.extend(
+        [
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[out1]",
+            os.path.join(clip_dir, "%06d.jpg"),
+            "-map",
+            "[out2]",
+            os.path.join(face_dir, "%06d.jpg"),
+        ]
+    )
     try:
         ret = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if ret.returncode != 0:
@@ -174,8 +193,10 @@ def process_video_to_fs(
     try:
         info = get_video_info(video_path)
         duration = float(info.get("duration") or 0.0)
+        if clip_duration_s is not None and clip_duration_s > 0.0:
+            duration = min(duration, clip_duration_s) if duration > 0.0 else clip_duration_s
     except Exception:
-        duration = 0.0
+        duration = clip_duration_s or 0.0
 
     audio_b64 = None
     audio_path = None
@@ -190,15 +211,22 @@ def process_video_to_fs(
                 "-loglevel",
                 "error",
                 "-y",
-                "-i",
-                video_path,
-                "-vn",
-                "-acodec",
-                "pcm_s16le",
-                "-ar",
-                str(int(audio_fps)),
-                tmp.name,
             ]
+            if clip_start_s > 0.0:
+                acmd.extend(["-ss", f"{clip_start_s:.3f}"])
+            acmd.extend(["-i", video_path])
+            if clip_duration_s is not None and clip_duration_s > 0.0:
+                acmd.extend(["-t", f"{clip_duration_s:.3f}"])
+            acmd.extend(
+                [
+                    "-vn",
+                    "-acodec",
+                    "pcm_s16le",
+                    "-ar",
+                    str(int(audio_fps)),
+                    tmp.name,
+                ]
+            )
             ares = subprocess.run(acmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if ares.returncode == 0:
                 raw = open(tmp.name, "rb").read()
