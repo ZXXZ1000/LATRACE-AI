@@ -242,6 +242,7 @@ def compile_video(
         utterances=utterances,
         evidence=evidence,
         trace=trace,
+        source_recorded_at=request.source.recorded_at,
     )
     stage_timings_ms["graph_compile_ms"] = round((perf_counter() - started_at) * 1000.0, 3)
     status = "compiled"

@@ -1028,6 +1028,29 @@ class GraphService:
             keep_event_ids=list(keep_event_ids or []),
         )
 
+    async def purge_source_except_graph(
+        self,
+        *,
+        tenant_id: str,
+        source_id: str,
+        keep_node_ids: List[str],
+    ) -> dict:
+        """Delete stale graph nodes for one source while preserving current node ids."""
+
+        src = str(source_id or "").strip()
+        if not src:
+            raise GraphValidationError("source_id_required")
+        purge_fn = getattr(self.store, "purge_source_except_graph", None)
+        if not callable(purge_fn):
+            raise GraphValidationError("purge_source_except_graph_unsupported")
+        with self._explain_cache_lock:
+            self._explain_cache.clear()
+        return await purge_fn(
+            tenant_id=tenant_id,
+            source_id=src,
+            keep_node_ids=list(keep_node_ids or []),
+        )
+
     # --- explain cache helpers ---
     def _explain_cache_key_first_meeting(self, tenant_id: str, me_id: str, other_id: str) -> str:
         return f"first_meeting|tenant={tenant_id}|me={me_id}|other={other_id}"

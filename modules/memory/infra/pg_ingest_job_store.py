@@ -107,6 +107,7 @@ class PgIngestJobStore:
                     user_tokens JSONB NOT NULL DEFAULT '[]',
                     memory_domain TEXT NOT NULL,
                     llm_policy TEXT NOT NULL,
+                    job_type TEXT NOT NULL DEFAULT 'dialog',
                     status TEXT NOT NULL,
                     attempts JSONB NOT NULL DEFAULT '{"stage2": 0, "stage3": 0}',
                     next_retry_at TIMESTAMPTZ,
@@ -122,6 +123,9 @@ class PgIngestJobStore:
                     payload_raw TEXT
                 )
             """)
+            await conn.execute(
+                "ALTER TABLE ingest_jobs ADD COLUMN IF NOT EXISTS job_type TEXT NOT NULL DEFAULT 'dialog'"
+            )
 
             # Create indexes
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_ingest_jobs_status ON ingest_jobs(status)")
@@ -160,6 +164,12 @@ class PgIngestJobStore:
 
     def _row_to_record(self, row: asyncpg.Record) -> IngestJobRecord:
         """Convert database row to IngestJobRecord."""
+        def _row_value(key: str, default: Any = None) -> Any:
+            try:
+                return row[key]
+            except (KeyError, IndexError):
+                return default
+
         def _safe_list(val: Any) -> list:
             if val is None:
                 return []
@@ -194,28 +204,29 @@ class PgIngestJobStore:
             return str(val)
 
         return IngestJobRecord(
-            job_id=str(row["job_id"] or ""),
-            session_id=str(row["session_id"] or ""),
-            commit_id=str(row["commit_id"]) if row["commit_id"] else None,
-            tenant_id=str(row["tenant_id"] or ""),
-            api_key_id=str(row["api_key_id"]) if row["api_key_id"] else None,
-            request_id=str(row["request_id"]) if row["request_id"] else None,
-            user_tokens=_safe_list(row["user_tokens"]),
-            memory_domain=str(row["memory_domain"] or ""),
-            llm_policy=str(row["llm_policy"] or ""),
-            status=str(row["status"] or ""),
-            attempts=_safe_dict(row["attempts"]),
-            next_retry_at=_ts_to_iso(row["next_retry_at"]),
-            last_error=_safe_dict(row["last_error"]),
-            metrics=_safe_dict(row["metrics"]),
-            created_at=_ts_to_iso(row["created_at"]) or "",
-            updated_at=_ts_to_iso(row["updated_at"]) or "",
-            cursor_committed=str(row["cursor_committed"]) if row["cursor_committed"] else None,
-            turns=_safe_list(row["turns"]),
-            client_meta=_safe_dict(row["client_meta"]),
-            stage2_marks=_safe_list(row["stage2_marks"]),
-            stage2_pin_intents=_safe_list(row["stage2_pin_intents"]),
-            payload_raw=str(row["payload_raw"]) if row["payload_raw"] else None,
+            job_id=str(_row_value("job_id") or ""),
+            session_id=str(_row_value("session_id") or ""),
+            commit_id=str(_row_value("commit_id")) if _row_value("commit_id") else None,
+            tenant_id=str(_row_value("tenant_id") or ""),
+            api_key_id=str(_row_value("api_key_id")) if _row_value("api_key_id") else None,
+            request_id=str(_row_value("request_id")) if _row_value("request_id") else None,
+            user_tokens=_safe_list(_row_value("user_tokens")),
+            memory_domain=str(_row_value("memory_domain") or ""),
+            llm_policy=str(_row_value("llm_policy") or ""),
+            job_type=str(_row_value("job_type") or "dialog"),
+            status=str(_row_value("status") or ""),
+            attempts=_safe_dict(_row_value("attempts")),
+            next_retry_at=_ts_to_iso(_row_value("next_retry_at")),
+            last_error=_safe_dict(_row_value("last_error")),
+            metrics=_safe_dict(_row_value("metrics")),
+            created_at=_ts_to_iso(_row_value("created_at")) or "",
+            updated_at=_ts_to_iso(_row_value("updated_at")) or "",
+            cursor_committed=str(_row_value("cursor_committed")) if _row_value("cursor_committed") else None,
+            turns=_safe_list(_row_value("turns")),
+            client_meta=_safe_dict(_row_value("client_meta")),
+            stage2_marks=_safe_list(_row_value("stage2_marks")),
+            stage2_pin_intents=_safe_list(_row_value("stage2_pin_intents")),
+            payload_raw=str(_row_value("payload_raw")) if _row_value("payload_raw") else None,
         )
 
     async def create_job(
@@ -233,6 +244,7 @@ class PgIngestJobStore:
         base_turn_id: Optional[str],
         client_meta: Optional[Dict[str, Any]],
         payload_raw: Optional[str] = None,
+        job_type: str = "dialog",
     ) -> Tuple[IngestJobRecord, bool]:
         """Create or retrieve an ingest job with commit_id idempotency.
 
@@ -344,16 +356,16 @@ class PgIngestJobStore:
                     """
                     INSERT INTO ingest_jobs (
                         job_id, session_id, commit_id, tenant_id, api_key_id, request_id,
-                        user_tokens, memory_domain, llm_policy, status, attempts,
+                        user_tokens, memory_domain, llm_policy, job_type, status, attempts,
                         next_retry_at, last_error, metrics, created_at, updated_at,
                         cursor_committed, turns, client_meta, stage2_marks, stage2_pin_intents, payload_raw
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11::jsonb, $12, $13, $14::jsonb, $15, $16, $17, $18::jsonb, $19::jsonb, $20, $21, $22)
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12::jsonb, $13, $14, $15::jsonb, $16, $17, $18, $19::jsonb, $20::jsonb, $21, $22, $23)
                     """,
                     job_id, sid, cid, str(tenant_id),
                     str(api_key_id).strip() if api_key_id else None,
                     str(request_id).strip() if request_id else None,
                     json.dumps(list(user_tokens)),  # Explicit JSON serialization for JSONB
-                    str(memory_domain), str(llm_policy), "RECEIVED",
+                    str(memory_domain), str(llm_policy), str(job_type or "dialog"), "RECEIVED",
                     json.dumps({"stage2": 0, "stage3": 0}),
                     None, None,
                     json.dumps({"archived_turns": len(turns), "kept_turns": None, "graph_nodes_written": 0, "vector_points_written": 0}),
@@ -385,6 +397,7 @@ class PgIngestJobStore:
                     user_tokens=list(user_tokens),
                     memory_domain=str(memory_domain),
                     llm_policy=str(llm_policy),
+                    job_type=str(job_type or "dialog"),
                     status="RECEIVED",
                     attempts={"stage2": 0, "stage3": 0},
                     next_retry_at=None,
@@ -402,6 +415,24 @@ class PgIngestJobStore:
         """Return True when job has enough payload to execute safely."""
         if not job.user_tokens or not any(str(x).strip() for x in job.user_tokens):
             return False
+        if str(job.job_type or "dialog").strip() in {"media_video", "media_audio"}:
+            raw = str(job.payload_raw or "").strip()
+            if not raw:
+                return False
+            try:
+                data = json.loads(raw)
+                if not isinstance(data, dict):
+                    return False
+                source_ref = data.get("source_ref") or data.get("source")
+                routing = data.get("routing")
+                if not isinstance(source_ref, dict) or not str(source_ref.get("source_id") or "").strip():
+                    return False
+                if not isinstance(routing, dict):
+                    return False
+                users = routing.get("user_id") or []
+                return any(str(x).strip() for x in users if str(x).strip())
+            except Exception:
+                return False
         if job.turns and any(isinstance(t, dict) and str(t.get("text") or t.get("content") or "").strip() for t in job.turns):
             return True
         raw = str(job.payload_raw or "").strip()

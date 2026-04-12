@@ -95,6 +95,20 @@ from modules.memory.infra.audit_store import AuditStore
 from modules.memory.infra.usage_wal import UsageWAL, UsageWALSettings
 from modules.memory.retrieval import retrieval
 from modules.memory.session_write import session_write
+from modules.memory.media_session_write import media_session_write
+from modules.media_graph_compiler.types import (
+    CompileAssetInputs as MediaCompileAssetInputs,
+    CompileAudioRequest,
+    CompileVideoRequest,
+    IdentityPolicy as MediaIdentityPolicy,
+    MediaSourceRef,
+    OptimizationPolicy as MediaOptimizationPolicy,
+    OperatorSelection as MediaOperatorSelection,
+    ProviderSelection as MediaProviderSelection,
+    SpeakerTrackPolicy as MediaSpeakerTrackPolicy,
+    VisualTrackPolicy as MediaVisualTrackPolicy,
+    WindowingPolicy as MediaWindowingPolicy,
+)
 from urllib.parse import urlparse, urlunparse
 
 MAX_REQUEST_BYTES_FALLBACK = 10 * 1024 * 1024  # 10 MiB
@@ -111,6 +125,8 @@ PATH_SCOPE_REQUIREMENTS: Dict[str, str] = {
     "/api/list": "memory.read",
     "/ingest": "memory.write",
     "/ingest/dialog/v1": "memory.write",
+    "/ingest/media/video/v1": "memory.write",
+    "/ingest/media/audio/v1": "memory.write",
     "/ingest/jobs/execute": "memory.admin",
     "/ingest/jobs/": "memory.read",
     "/ingest/sessions/": "memory.read",
@@ -1494,6 +1510,81 @@ def _resolve_tenant(request: Request) -> str:
     return str(tenant_id)
 
 
+def _normalize_scope_user_ids(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw = value
+    else:
+        raw = [value]
+    return list(dict.fromkeys([str(item).strip() for item in raw if str(item).strip()]))
+
+
+def _graph_payload_sequences(data: Dict[str, Any]) -> List[Tuple[str, List[Any]]]:
+    return [
+        ("segments", list(data.get("segments") or [])),
+        ("evidences", list(data.get("evidences") or [])),
+        ("utterances", list(data.get("utterances") or [])),
+        ("entities", list(data.get("entities") or [])),
+        ("events", list(data.get("events") or [])),
+        ("places", list(data.get("places") or [])),
+        ("time_slices", list(data.get("time_slices") or [])),
+        ("regions", list(data.get("regions") or [])),
+        ("states", list(data.get("states") or [])),
+        ("knowledge", list(data.get("knowledge") or [])),
+        ("pending_equivs", list(data.get("pending_equivs") or [])),
+        ("edges", list(data.get("edges") or [])),
+    ]
+
+
+def _validate_graph_scope(data: Dict[str, Any]) -> None:
+    saw_items = False
+    base_users: Optional[Tuple[str, ...]] = None
+    base_domain: Optional[str] = None
+    missing: List[str] = []
+    for seq_name, items in _graph_payload_sequences(data):
+        normalized_items: List[Dict[str, Any]] = []
+        for idx, raw_item in enumerate(items):
+            if not isinstance(raw_item, dict):
+                try:
+                    item = dict(raw_item)
+                except Exception:
+                    continue
+            else:
+                item = dict(raw_item)
+            saw_items = True
+            user_ids = _normalize_scope_user_ids(item.get("user_id"))
+            memory_domain = str(item.get("memory_domain") or "").strip()
+            if not user_ids:
+                missing.append(f"{seq_name}[{idx}].user_id")
+            if not memory_domain:
+                missing.append(f"{seq_name}[{idx}].memory_domain")
+            if user_ids:
+                item["user_id"] = list(user_ids)
+                current_users = tuple(user_ids)
+                if base_users is None:
+                    base_users = current_users
+                elif current_users != base_users:
+                    raise HTTPException(status_code=422, detail="graph_scope_mismatch:user_id")
+            if memory_domain:
+                item["memory_domain"] = memory_domain
+                if base_domain is None:
+                    base_domain = memory_domain
+                elif memory_domain != base_domain:
+                    raise HTTPException(status_code=422, detail="graph_scope_mismatch:memory_domain")
+            normalized_items.append(item)
+        data[seq_name] = normalized_items
+    if saw_items and missing:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "graph_scope_missing",
+                "message": "user_id and memory_domain are required on every graph node and edge",
+                "missing": missing,
+            },
+        )
+
+
 def _inject_tenant(body: Any, tenant_id: str) -> GraphUpsertRequest:
     """Force all nodes/edges to carry the caller tenant_id to prevent cross-tenant writes.
 
@@ -1505,30 +1596,13 @@ def _inject_tenant(body: Any, tenant_id: str) -> GraphUpsertRequest:
     except Exception:
         raise HTTPException(status_code=422, detail="invalid_graph_payload")
 
-    for seq_name in ("segments", "evidences", "entities", "events", "places", "time_slices", "edges"):
-        items = data.get(seq_name) or []
+    _validate_graph_scope(data)
+    for seq_name, items in _graph_payload_sequences(data):
         new_items = []
         for item in items:
-            if not isinstance(item, dict):
-                try:
-                    item = dict(item)
-                except Exception:
-                    continue
             item["tenant_id"] = tenant_id
             new_items.append(item)
         data[seq_name] = new_items
-    # Pending equivs
-    peq_items = data.get("pending_equivs") or []
-    new_peq = []
-    for item in peq_items:
-        if not isinstance(item, dict):
-            try:
-                item = dict(item)
-            except Exception:
-                continue
-        item["tenant_id"] = tenant_id
-        new_peq.append(item)
-    data["pending_equivs"] = new_peq
     try:
         return GraphUpsertRequest.model_validate(data)
     except Exception as exc:
@@ -1974,6 +2048,134 @@ def _handle_embedding_usage_event(usage: EmbeddingUsage) -> None:
         return
 
 
+async def _run_media_ingest_job(
+    *,
+    record: IngestJobRecord,
+    tenant_id: str,
+    user_tokens: List[str],
+    memory_domain: str,
+    payload_data: Optional[Dict[str, Any]],
+    job_type: str,
+    stage2_start: float,
+) -> None:
+    payload = dict(payload_data or {})
+    if not payload:
+        err = {"stage": "stage2", "code": "invalid_job_payload", "message": "media payload is required"}
+        await ingest_store.update_status(record.job_id, status="STAGE2_FAILED", error=err)
+        return
+    source_ref = payload.get("source_ref") or payload.get("source") or {}
+    source_id = str(source_ref.get("source_id") or "").strip() if isinstance(source_ref, dict) else ""
+    if not source_id:
+        err = {"stage": "stage2", "code": "invalid_job_payload", "message": "source_ref.source_id is required"}
+        await ingest_store.update_status(record.job_id, status="STAGE2_FAILED", error=err)
+        return
+    if not user_tokens:
+        routing = payload.get("routing") or {}
+        if isinstance(routing, dict):
+            user_tokens = _normalize_scope_user_ids(routing.get("user_id"))
+    if not user_tokens:
+        err = {"stage": "stage2", "code": "invalid_job_payload", "message": "routing.user_id must be non-empty"}
+        await ingest_store.update_status(record.job_id, status="STAGE2_FAILED", error=err)
+        return
+    if not memory_domain:
+        routing = payload.get("routing") or {}
+        if isinstance(routing, dict):
+            memory_domain = str(routing.get("memory_domain") or "").strip()
+    if not memory_domain:
+        err = {"stage": "stage2", "code": "invalid_job_payload", "message": "routing.memory_domain is required"}
+        await ingest_store.update_status(record.job_id, status="STAGE2_FAILED", error=err)
+        return
+
+    try:
+        if job_type == "media_video":
+            from modules.media_graph_compiler import compile_video
+
+            compile_request = _build_compile_video_request(payload, tenant_id)
+            compile_result = await asyncio.to_thread(compile_video, compile_request)
+        else:
+            from modules.media_graph_compiler import compile_audio
+
+            compile_request = _build_compile_audio_request(payload, tenant_id)
+            compile_result = await asyncio.to_thread(compile_audio, compile_request)
+    except Exception as exc:
+        err = {"stage": "stage2", "code": "media_compile_failed", "message": f"{type(exc).__name__}: {str(exc)[:200]}"}
+        await ingest_store.update_status(record.job_id, status="STAGE2_FAILED", error=err)
+        return
+
+    graph_request = getattr(compile_result, "graph_request", None)
+    if graph_request is None:
+        err = {"stage": "stage2", "code": "invalid_compile_result", "message": "graph_request missing from compile result"}
+        await ingest_store.update_status(record.job_id, status="STAGE2_FAILED", error=err)
+        return
+
+    stage2_ms = int((time.perf_counter() - stage2_start) * 1000)
+    try:
+        observe_ingest_latency("stage2", stage2_ms)
+    except Exception:
+        pass
+    await ingest_store.update_status(
+        record.job_id,
+        status="STAGE3_RUNNING",
+        stage="stage3",
+        attempt_inc=True,
+        metrics_patch={
+            "stage2_ms": stage2_ms,
+            "compiled_segments": len(graph_request.segments or []),
+            "compiled_evidences": len(graph_request.evidences or []),
+            "compiled_utterances": len(graph_request.utterances or []),
+            "compiled_events": len(graph_request.events or []),
+        },
+    )
+
+    overwrite_existing = bool(payload.get("overwrite_existing"))
+    try:
+        stage3_start = time.perf_counter()
+        res = await media_session_write(
+            svc,
+            tenant_id=str(tenant_id),
+            user_tokens=list(user_tokens),
+            memory_domain=str(memory_domain),
+            graph_request=graph_request,
+            source_id=source_id,
+            overwrite_existing=overwrite_existing,
+        )
+        status_val = str(res.get("status") or "") if isinstance(res, dict) else ""
+        if status_val != "ok":
+            err = {
+                "stage": "stage3",
+                "code": "media_session_write_failed",
+                "message": f"media_session_write status={status_val or 'unknown'}",
+            }
+            await ingest_store.update_status(record.job_id, status="STAGE3_FAILED", error=err)
+            return
+        trace = res.get("trace") if isinstance(res, dict) else {}
+        timing = trace.get("timing_ms") if isinstance(trace, dict) else {}
+        stage3_ms = int((time.perf_counter() - stage3_start) * 1000)
+        try:
+            observe_ingest_latency("stage3", stage3_ms)
+        except Exception:
+            pass
+        await ingest_store.update_status(
+            record.job_id,
+            status="COMPLETED",
+            metrics_patch={
+                "graph_nodes_written": int(res.get("graph_nodes_written") or 0),
+                "vector_points_written": int(res.get("written_entries") or 0),
+                "stage3_ms": stage3_ms,
+                "stage3_graph_ms": timing.get("graph_upsert_ms") if isinstance(timing, dict) else None,
+                "stage3_publish_ms": timing.get("publish_ms") if isinstance(timing, dict) else None,
+                "stage3_overwrite_delete_ms": timing.get("overwrite_delete_ms") if isinstance(timing, dict) else None,
+            },
+            error=None,
+            next_retry_at=None,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        err = {"stage": "stage3", "code": "server_error", "message": f"{type(exc).__name__}: {str(exc)[:200]}"}
+        await ingest_store.update_status(record.job_id, status="STAGE3_FAILED", error=err)
+
+
 async def _run_ingest_job(
     *,
     job_id: str,
@@ -2018,6 +2220,18 @@ async def _run_ingest_job(
         payload_llm = payload_data.get("llm_policy")
         if payload_llm:
             llm_policy = str(payload_llm)
+    job_type = str(record.job_type or "dialog").strip().lower() or "dialog"
+    if job_type in {"media_video", "media_audio"}:
+        await _run_media_ingest_job(
+            record=record,
+            tenant_id=str(tenant_id),
+            user_tokens=list(user_tokens),
+            memory_domain=str(memory_domain),
+            payload_data=payload_data,
+            job_type=job_type,
+            stage2_start=stage2_start,
+        )
+        return
     turns = _normalize_ingest_turns(turns)
 
     # Guardrails: never block on an invalid/corrupted job payload.
@@ -2492,10 +2706,136 @@ class IngestDialogBody(BaseModel):
     llm_policy: str = "require"
 
 
+class MediaRoutingBody(BaseModel):
+    user_id: List[str] = Field(default_factory=list)
+    memory_domain: str = "media"
+    run_id: Optional[str] = None
+    trace_id: Optional[str] = None
+
+
+class IngestMediaVideoBody(BaseModel):
+    session_id: Optional[str] = None
+    commit_id: Optional[str] = None
+    overwrite_existing: bool = False
+    routing: MediaRoutingBody
+    source_ref: MediaSourceRef
+    clip_start_s: Optional[float] = None
+    clip_end_s: Optional[float] = None
+    windowing: MediaWindowingPolicy = Field(default_factory=MediaWindowingPolicy)
+    provider: MediaProviderSelection = Field(default_factory=MediaProviderSelection)
+    visual_operator: MediaOperatorSelection = Field(default_factory=MediaOperatorSelection)
+    speaker_operator: MediaOperatorSelection = Field(default_factory=MediaOperatorSelection)
+    visual_policy: MediaVisualTrackPolicy = Field(default_factory=MediaVisualTrackPolicy)
+    speaker_policy: MediaSpeakerTrackPolicy = Field(default_factory=MediaSpeakerTrackPolicy)
+    identity: MediaIdentityPolicy = Field(default_factory=MediaIdentityPolicy)
+    optimization: MediaOptimizationPolicy = Field(default_factory=MediaOptimizationPolicy)
+    asset_inputs: MediaCompileAssetInputs = Field(default_factory=MediaCompileAssetInputs)
+    enable_visual_operator: bool = True
+    enable_audio_operator: bool = True
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    llm_policy: str = "best_effort"
+
+
+class IngestMediaAudioBody(BaseModel):
+    session_id: Optional[str] = None
+    commit_id: Optional[str] = None
+    overwrite_existing: bool = False
+    routing: MediaRoutingBody
+    source_ref: MediaSourceRef
+    clip_start_s: Optional[float] = None
+    clip_end_s: Optional[float] = None
+    windowing: MediaWindowingPolicy = Field(default_factory=MediaWindowingPolicy)
+    provider: MediaProviderSelection = Field(default_factory=MediaProviderSelection)
+    speaker_operator: MediaOperatorSelection = Field(default_factory=MediaOperatorSelection)
+    speaker_policy: MediaSpeakerTrackPolicy = Field(default_factory=MediaSpeakerTrackPolicy)
+    identity: MediaIdentityPolicy = Field(default_factory=MediaIdentityPolicy)
+    optimization: MediaOptimizationPolicy = Field(default_factory=MediaOptimizationPolicy)
+    asset_inputs: MediaCompileAssetInputs = Field(default_factory=MediaCompileAssetInputs)
+    enable_audio_operator: bool = True
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    llm_policy: str = "best_effort"
+
+
 async def _enqueue_ingest_job(record: IngestJobRecord) -> bool:
     if _ingest_executor is None:
         return False
     return await _ingest_executor.enqueue(record.job_id, tenant_id=str(record.tenant_id))
+
+
+def _media_routing_user_ids(routing: MediaRoutingBody) -> List[str]:
+    return _normalize_scope_user_ids(getattr(routing, "user_id", []))
+
+
+def _validate_media_routing(routing: MediaRoutingBody) -> List[str]:
+    missing: List[str] = []
+    if not _media_routing_user_ids(routing):
+        missing.append("routing.user_id")
+    if not str(routing.memory_domain or "").strip():
+        missing.append("routing.memory_domain")
+    return missing
+
+
+def _default_media_session_id(source_id: str) -> str:
+    return f"media::{source_id}"
+
+
+def _build_compile_video_request(payload: Dict[str, Any], tenant_id: str) -> CompileVideoRequest:
+    routing_raw = dict(payload.get("routing") or {})
+    return CompileVideoRequest.model_validate(
+        {
+            "routing": {
+                "tenant_id": str(tenant_id),
+                "user_id": _normalize_scope_user_ids(routing_raw.get("user_id")),
+                "memory_domain": str(routing_raw.get("memory_domain") or "media"),
+                "run_id": routing_raw.get("run_id"),
+                "trace_id": routing_raw.get("trace_id"),
+            },
+            "source": payload.get("source_ref") or payload.get("source") or {},
+            "clip_start_s": payload.get("clip_start_s"),
+            "clip_end_s": payload.get("clip_end_s"),
+            "windowing": payload.get("windowing") or {},
+            "provider": payload.get("provider") or {},
+            "visual_operator": payload.get("visual_operator") or {},
+            "speaker_operator": payload.get("speaker_operator") or {},
+            "visual_policy": payload.get("visual_policy") or {},
+            "speaker_policy": payload.get("speaker_policy") or {},
+            "identity": payload.get("identity") or {},
+            "optimization": payload.get("optimization") or {},
+            "asset_inputs": payload.get("asset_inputs") or {},
+            "enable_visual_operator": payload.get("enable_visual_operator", True),
+            "enable_audio_operator": payload.get("enable_audio_operator", True),
+            "write_graph": False,
+            "metadata": payload.get("metadata") or {},
+        }
+    )
+
+
+def _build_compile_audio_request(payload: Dict[str, Any], tenant_id: str) -> CompileAudioRequest:
+    routing_raw = dict(payload.get("routing") or {})
+    return CompileAudioRequest.model_validate(
+        {
+            "routing": {
+                "tenant_id": str(tenant_id),
+                "user_id": _normalize_scope_user_ids(routing_raw.get("user_id")),
+                "memory_domain": str(routing_raw.get("memory_domain") or "media"),
+                "run_id": routing_raw.get("run_id"),
+                "trace_id": routing_raw.get("trace_id"),
+            },
+            "source": payload.get("source_ref") or payload.get("source") or {},
+            "clip_start_s": payload.get("clip_start_s"),
+            "clip_end_s": payload.get("clip_end_s"),
+            "windowing": payload.get("windowing") or {},
+            "provider": payload.get("provider") or {},
+            "speaker_operator": payload.get("speaker_operator") or {},
+            "speaker_policy": payload.get("speaker_policy") or {},
+            "identity": payload.get("identity") or {},
+            "optimization": payload.get("optimization") or {},
+            "asset_inputs": payload.get("asset_inputs") or {},
+            "enable_audio_operator": payload.get("enable_audio_operator", True),
+            "write_graph": False,
+            "metadata": payload.get("metadata") or {},
+        }
+    )
 
 
 class RetrievalDialogBody(BaseModel):
@@ -3086,8 +3426,165 @@ async def ingest_dialog_v1(
             "ok": True,
             "session_id": record.session_id,
             "job_id": record.job_id,
+            "job_type": record.job_type,
             "accepted_turns": accepted,
             "deduped_turns": deduped,
+            "status": record.status,
+            "status_url": f"/ingest/jobs/{record.job_id}",
+            "enqueue": True,
+        },
+    )
+
+
+@app.post("/ingest/media/video/v1")
+async def ingest_media_video_v1(
+    body: IngestMediaVideoBody,
+    request: Request,
+    wait: bool = Query(False),
+    wait_timeout_ms: Optional[int] = Query(None),
+):
+    del wait_timeout_ms
+    ctx = await _enforce_security(request, require_signature=True)
+    tenant_id = str(ctx.get("tenant_id") or "")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    missing = _validate_media_routing(body.routing)
+    if missing:
+        return _missing_core_requirements(missing, target="media_ingest")
+    source_id = str(body.source_ref.source_id or "").strip()
+    if not source_id:
+        return _missing_core_requirements(["source_ref.source_id"], target="media_ingest")
+    session_id = str(body.session_id or "").strip() or _default_media_session_id(source_id)
+    if bool(wait):
+        raise HTTPException(status_code=400, detail="wait_not_supported")
+    user_tokens = _media_routing_user_ids(body.routing)
+    payload_raw = body.model_dump_json()
+    record, created = await ingest_store.create_job(
+        session_id=session_id,
+        commit_id=(str(body.commit_id).strip() if body.commit_id else None),
+        tenant_id=str(tenant_id),
+        api_key_id=(str(ctx.get("subject")) if ctx.get("subject") else None),
+        request_id=_request_id_from_request(request),
+        turns=[],
+        user_tokens=list(user_tokens),
+        base_turn_id=None,
+        client_meta={"overwrite_existing": bool(body.overwrite_existing), "job_type": "media_video"},
+        memory_domain=str(body.routing.memory_domain or "media"),
+        llm_policy=str(body.llm_policy or "best_effort"),
+        payload_raw=payload_raw,
+        job_type="media_video",
+    )
+    accepted = 1 if created else 0
+    deduped = 0 if created else 1
+    enqueued = await _enqueue_ingest_job(record)
+    if not enqueued:
+        err = {"stage": "enqueue", "code": "enqueue_failed", "message": "ingest_executor_unavailable"}
+        await ingest_store.update_status(record.job_id, status="ENQUEUE_FAILED", error=err)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "session_id": record.session_id,
+                "job_id": record.job_id,
+                "job_type": record.job_type,
+                "accepted_sources": accepted,
+                "deduped_sources": deduped,
+                "status": "ENQUEUE_FAILED",
+                "status_url": f"/ingest/jobs/{record.job_id}",
+                "error": err,
+            },
+        )
+    cur = await ingest_store.get_job(record.job_id)
+    if cur is not None:
+        record = cur
+    return JSONResponse(
+        status_code=202,
+        content={
+            "ok": True,
+            "session_id": record.session_id,
+            "job_id": record.job_id,
+            "job_type": record.job_type,
+            "source_id": source_id,
+            "accepted_sources": accepted,
+            "deduped_sources": deduped,
+            "status": record.status,
+            "status_url": f"/ingest/jobs/{record.job_id}",
+            "enqueue": True,
+        },
+    )
+
+
+@app.post("/ingest/media/audio/v1")
+async def ingest_media_audio_v1(
+    body: IngestMediaAudioBody,
+    request: Request,
+    wait: bool = Query(False),
+    wait_timeout_ms: Optional[int] = Query(None),
+):
+    del wait_timeout_ms
+    ctx = await _enforce_security(request, require_signature=True)
+    tenant_id = str(ctx.get("tenant_id") or "")
+    if not tenant_id:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    missing = _validate_media_routing(body.routing)
+    if missing:
+        return _missing_core_requirements(missing, target="media_ingest")
+    source_id = str(body.source_ref.source_id or "").strip()
+    if not source_id:
+        return _missing_core_requirements(["source_ref.source_id"], target="media_ingest")
+    session_id = str(body.session_id or "").strip() or _default_media_session_id(source_id)
+    if bool(wait):
+        raise HTTPException(status_code=400, detail="wait_not_supported")
+    user_tokens = _media_routing_user_ids(body.routing)
+    payload_raw = body.model_dump_json()
+    record, created = await ingest_store.create_job(
+        session_id=session_id,
+        commit_id=(str(body.commit_id).strip() if body.commit_id else None),
+        tenant_id=str(tenant_id),
+        api_key_id=(str(ctx.get("subject")) if ctx.get("subject") else None),
+        request_id=_request_id_from_request(request),
+        turns=[],
+        user_tokens=list(user_tokens),
+        base_turn_id=None,
+        client_meta={"overwrite_existing": bool(body.overwrite_existing), "job_type": "media_audio"},
+        memory_domain=str(body.routing.memory_domain or "media"),
+        llm_policy=str(body.llm_policy or "best_effort"),
+        payload_raw=payload_raw,
+        job_type="media_audio",
+    )
+    accepted = 1 if created else 0
+    deduped = 0 if created else 1
+    enqueued = await _enqueue_ingest_job(record)
+    if not enqueued:
+        err = {"stage": "enqueue", "code": "enqueue_failed", "message": "ingest_executor_unavailable"}
+        await ingest_store.update_status(record.job_id, status="ENQUEUE_FAILED", error=err)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "ok": False,
+                "session_id": record.session_id,
+                "job_id": record.job_id,
+                "job_type": record.job_type,
+                "accepted_sources": accepted,
+                "deduped_sources": deduped,
+                "status": "ENQUEUE_FAILED",
+                "status_url": f"/ingest/jobs/{record.job_id}",
+                "error": err,
+            },
+        )
+    cur = await ingest_store.get_job(record.job_id)
+    if cur is not None:
+        record = cur
+    return JSONResponse(
+        status_code=202,
+        content={
+            "ok": True,
+            "session_id": record.session_id,
+            "job_id": record.job_id,
+            "job_type": record.job_type,
+            "source_id": source_id,
+            "accepted_sources": accepted,
+            "deduped_sources": deduped,
             "status": record.status,
             "status_url": f"/ingest/jobs/{record.job_id}",
             "enqueue": True,
@@ -3104,6 +3601,7 @@ async def ingest_job_status(job_id: str, request: Request):
     return {
         "job_id": record.job_id,
         "session_id": record.session_id,
+        "job_type": record.job_type,
         "status": record.status,
         "attempts": dict(record.attempts or {}),
         "next_retry_at": record.next_retry_at,
@@ -3134,6 +3632,7 @@ async def ingest_job_execute(body: IngestExecuteBody, request: Request):
             content={
                 "job_id": record.job_id,
                 "session_id": record.session_id,
+                "job_type": record.job_type,
                 "status": "ENQUEUE_FAILED",
                 "attempts": dict(record.attempts or {}),
                 "next_retry_at": record.next_retry_at,
@@ -3147,6 +3646,7 @@ async def ingest_job_execute(body: IngestExecuteBody, request: Request):
     return {
         "job_id": record.job_id,
         "session_id": record.session_id,
+        "job_type": record.job_type,
         "status": record.status,
         "attempts": dict(record.attempts or {}),
         "next_retry_at": record.next_retry_at,
@@ -4028,6 +4528,8 @@ async def graph_upsert(body: GraphUpsertBody, request: Request):
         req_model = _inject_tenant(body, tenant_id)
         await graph_svc.upsert(req_model)
         return {"ok": True}
+    except HTTPException:
+        raise
     except GraphValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:  # pragma: no cover - runtime safety net

@@ -24,7 +24,10 @@ from modules.media_graph_compiler.application import (
     SPEAKER_TRACK_STAGE,
     VISUAL_TRACK_STAGE,
 )
-from modules.media_graph_compiler.domain import stable_visual_entity_id
+from modules.media_graph_compiler.domain import (
+    stable_speaker_entity_id,
+    stable_visual_entity_id,
+)
 
 
 def _routing() -> MediaRoutingContext:
@@ -219,7 +222,11 @@ def test_compile_video_runs_end_to_end_with_assets_and_graph(tmp_path: Path, mon
 
     request = CompileVideoRequest(
         routing=_routing(),
-        source=MediaSourceRef(source_id="video_1", file_path=str(video_path)),
+        source=MediaSourceRef(
+            source_id="video_1",
+            file_path=str(video_path),
+            recorded_at="2026-04-11T10:00:00+08:00",
+        ),
         metadata={
             "duration_seconds": 12.0,
             "artifacts_dir": str(assets_dir),
@@ -242,16 +249,62 @@ def test_compile_video_runs_end_to_end_with_assets_and_graph(tmp_path: Path, mon
     assert result.stats["semantic_windows"]["windows"] == 2
     assert result.stats["semantic_windows"]["representative_frames_total"] >= 2
     assert result.stats["semantic_windowing"]["adaptive"] is False
-    occurs_in = [edge for edge in result.graph_request.edges if edge.rel_type == "OCCURS_IN"]
-    aligned_with = [edge for edge in result.graph_request.edges if edge.rel_type == "ALIGNED_WITH"]
-    involves = [edge for edge in result.graph_request.edges if edge.rel_type == "INVOLVES"]
-    assert len(occurs_in) == len(result.window_digests)
-    assert len(aligned_with) == 1
+    graph = result.graph_request
+    assert graph is not None
+    summarizes = [edge for edge in graph.edges if edge.rel_type == "SUMMARIZES"]
+    involves = [edge for edge in graph.edges if edge.rel_type == "INVOLVES"]
+    covers_segments = [edge for edge in graph.edges if edge.rel_type == "COVERS_SEGMENT"]
+    covers_events = [edge for edge in graph.edges if edge.rel_type == "COVERS_EVENT"]
+    spoken_by = [edge for edge in graph.edges if edge.rel_type == "SPOKEN_BY"]
+    event_support_utterances = [
+        edge
+        for edge in graph.edges
+        if edge.rel_type == "SUPPORTED_BY"
+        and edge.src_type == "Event"
+        and edge.dst_type == "UtteranceEvidence"
+    ]
+    event_support_evidence = [
+        edge
+        for edge in graph.edges
+        if edge.rel_type == "SUPPORTED_BY"
+        and edge.src_type == "Event"
+        and edge.dst_type == "Evidence"
+    ]
+    utterance_support_evidence = [
+        edge
+        for edge in graph.edges
+        if edge.rel_type == "SUPPORTED_BY"
+        and edge.src_type == "UtteranceEvidence"
+        and edge.dst_type == "Evidence"
+    ]
+    contains_evidence = [edge for edge in graph.edges if edge.rel_type == "CONTAINS_EVIDENCE"]
+    belongs_to_entity = [edge for edge in graph.edges if edge.rel_type == "BELONGS_TO_ENTITY"]
+    assert len(graph.time_slices) == len(result.window_digests)
+    assert len(summarizes) == len(result.window_digests)
+    assert len(covers_segments) == len(result.window_digests)
+    assert len(covers_events) == len(result.window_digests)
     assert len(involves) >= 1
-    assert aligned_with[0].confidence == 0.91
-    assert result.graph_request.events[0].event_type == "conversation"
-    assert result.graph_request.events[0].action == "speak"
-    assert result.graph_request.events[0].actor_id == stable_visual_entity_id("video_1", "face_1")
+    assert len(spoken_by) == 1
+    assert len(event_support_utterances) == 1
+    assert len(event_support_evidence) >= 1
+    assert len(utterance_support_evidence) == 1
+    assert len(contains_evidence) == 2
+    assert len(belongs_to_entity) == 2
+    assert graph.pending_equivs[0].id == "fvlink_demo_1"
+    assert graph.pending_equivs[0].entity_id == stable_speaker_entity_id("video_1", "voice_1")
+    assert graph.pending_equivs[0].candidate_id == stable_visual_entity_id("video_1", "face_1")
+    assert graph.pending_equivs[0].confidence == 0.91
+    assert not any(
+        edge.rel_type in {"OCCURS_IN", "SAID_BY", "ALIGNED_WITH", "HAS_UTTERANCE", "SUPPORTS_UTTERANCE"}
+        for edge in graph.edges
+    )
+    assert graph.events[0].event_type == "conversation"
+    assert graph.events[0].action == "speak"
+    assert graph.events[0].actor_id == stable_visual_entity_id("video_1", "face_1")
+    assert graph.events[0].logical_event_id == result.window_digests[0].window_id
+    assert graph.events[0].t_abs_start is not None
+    assert graph.segments[0].has_physical_time is True
+    assert graph.utterances[0].segment_id == graph.segments[0].id
     assert all(Path(asset.file_path).exists() for asset in result.asset_outputs if asset.file_path)
     assert result.stats["stage_timings_ms"]["visual_stage_ms"] >= 0.0
     assert result.stats["stage_timings_ms"]["speaker_stage_ms"] >= 0.0
@@ -290,7 +343,11 @@ def test_compile_audio_can_write_graph_with_injected_writer(tmp_path: Path) -> N
 
     request = CompileAudioRequest(
         routing=_routing(),
-        source=MediaSourceRef(source_id="audio_1", file_path=str(audio_path)),
+        source=MediaSourceRef(
+            source_id="audio_1",
+            file_path=str(audio_path),
+            recorded_at="2026-04-11T11:00:00+08:00",
+        ),
         metadata={"duration_seconds": 6.0},
         write_graph=True,
     )
@@ -310,6 +367,28 @@ def test_compile_audio_can_write_graph_with_injected_writer(tmp_path: Path) -> N
     assert result.trace.optimization_plan["audio"]["enable_vad"] is True
     assert result.stats["stage_timings_ms"]["speaker_stage_ms"] >= 0.0
     assert result.stats["stage_timings_ms"]["total_ms"] >= result.stats["stage_timings_ms"]["graph_compile_ms"]
+    graph = result.graph_request
+    assert graph is not None
+    assert len(graph.time_slices) == 1
+    assert len([edge for edge in graph.edges if edge.rel_type == "SUMMARIZES"]) == 1
+    assert len([edge for edge in graph.edges if edge.rel_type == "SPOKEN_BY"]) == 1
+    assert len(
+        [
+            edge
+            for edge in graph.edges
+            if edge.rel_type == "SUPPORTED_BY"
+            and edge.src_type == "Event"
+            and edge.dst_type == "UtteranceEvidence"
+        ]
+    ) == 1
+    assert len([edge for edge in graph.edges if edge.rel_type == "COVERS_EVENT"]) == 1
+    assert graph.pending_equivs == []
+    assert not any(
+        edge.rel_type in {"OCCURS_IN", "SAID_BY", "ALIGNED_WITH", "HAS_UTTERANCE", "SUPPORTS_UTTERANCE"}
+        for edge in graph.edges
+    )
+    assert graph.events[0].source == "audio_1"
+    assert graph.events[0].t_abs_start is not None
 
 
 def _wav_bytes(duration_ms: int = 1200, sample_rate: int = 16000) -> bytes:

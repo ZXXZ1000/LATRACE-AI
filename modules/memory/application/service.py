@@ -306,6 +306,28 @@ class MemoryService:
         # Pass vector_store to enable TKG vector writes (Event/Entity -> Qdrant)
         await GraphService(self.graph, gating=gating, vector_store=self.vectors).upsert(body)
 
+    async def graph_purge_source_except_graph_v0(
+        self,
+        *,
+        tenant_id: str,
+        source_id: str,
+        keep_node_ids: List[str],
+    ) -> dict:
+        """Delete stale nodes from one source while preserving the just-upserted graph."""
+
+        purge_fn = getattr(self.graph, "purge_source_except_graph", None)
+        if not callable(purge_fn):
+            raise NotImplementedError("graph_store.purge_source_except_graph is not available")
+        from modules.memory.application.graph_service import GraphService
+
+        cfg = load_memory_config()
+        gating = get_graph_settings(cfg)
+        return await GraphService(self.graph, gating=gating).purge_source_except_graph(
+            tenant_id=str(tenant_id),
+            source_id=str(source_id),
+            keep_node_ids=list(keep_node_ids or []),
+        )
+
     async def graph_list_events(
         self,
         *,

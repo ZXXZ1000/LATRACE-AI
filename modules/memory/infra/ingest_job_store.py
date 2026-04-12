@@ -32,6 +32,7 @@ class IngestJobRecord:
     user_tokens: List[str]
     memory_domain: str
     llm_policy: str
+    job_type: str
     status: str
     attempts: Dict[str, int]
     next_retry_at: Optional[str]
@@ -81,6 +82,7 @@ class IngestJobStore:
                 user_tokens TEXT NOT NULL,
                 memory_domain TEXT NOT NULL,
                 llm_policy TEXT NOT NULL,
+                job_type TEXT NOT NULL DEFAULT 'dialog',
                 status TEXT NOT NULL,
                 attempts TEXT NOT NULL,
                 next_retry_at TEXT,
@@ -126,6 +128,7 @@ class IngestJobStore:
                 "api_key_id": "TEXT",
                 "request_id": "TEXT",
                 "payload_raw": "TEXT",
+                "job_type": "TEXT NOT NULL DEFAULT 'dialog'",
             },
         )
 
@@ -154,6 +157,7 @@ class IngestJobStore:
         base_turn_id: Optional[str],
         client_meta: Optional[Dict[str, Any]],
         payload_raw: Optional[str] = None,
+        job_type: str = "dialog",
     ) -> Tuple[IngestJobRecord, bool]:
         sid = str(session_id or "").strip()
         if not sid:
@@ -165,6 +169,24 @@ class IngestJobStore:
                     pass
                 else:
                     return False
+                if str(job.job_type or "dialog").strip() in {"media_video", "media_audio"}:
+                    raw = str(job.payload_raw or "").strip()
+                    if not raw:
+                        return False
+                    try:
+                        data = json.loads(raw)
+                        if not isinstance(data, dict):
+                            return False
+                        source_ref = data.get("source_ref") or data.get("source")
+                        routing = data.get("routing")
+                        if not isinstance(source_ref, dict) or not str(source_ref.get("source_id") or "").strip():
+                            return False
+                        if not isinstance(routing, dict):
+                            return False
+                        users = routing.get("user_id") or []
+                        return any(str(x).strip() for x in users if str(x).strip())
+                    except Exception:
+                        return False
                 if job.turns and any(isinstance(t, dict) and str(t.get("text") or t.get("content") or "").strip() for t in job.turns):
                     return True
                 raw = str(job.payload_raw or "").strip()
@@ -210,6 +232,7 @@ class IngestJobStore:
                 user_tokens=list(user_tokens),
                 memory_domain=str(memory_domain),
                 llm_policy=str(llm_policy),
+                job_type=str(job_type or "dialog"),
                 status="RECEIVED",
                 attempts={"stage2": 0, "stage3": 0},
                 next_retry_at=None,
@@ -347,10 +370,10 @@ class IngestJobStore:
         cur.execute(
             """
             INSERT OR REPLACE INTO ingest_jobs(
-                job_id, session_id, commit_id, tenant_id, api_key_id, request_id, user_tokens, memory_domain, llm_policy, status,
+                job_id, session_id, commit_id, tenant_id, api_key_id, request_id, user_tokens, memory_domain, llm_policy, job_type, status,
                 attempts, next_retry_at, last_error, metrics, created_at, updated_at, cursor_committed, turns, client_meta,
                 stage2_marks, stage2_pin_intents, payload_raw
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 record.job_id,
@@ -362,6 +385,7 @@ class IngestJobStore:
                 json.dumps(record.user_tokens, ensure_ascii=False),
                 record.memory_domain,
                 record.llm_policy,
+                record.job_type,
                 record.status,
                 json.dumps(record.attempts, ensure_ascii=False),
                 record.next_retry_at,
@@ -420,6 +444,7 @@ class IngestJobStore:
             user_tokens=_safe_json_list(_get_col("user_tokens")),
             memory_domain=str(_get_col("memory_domain") or ""),
             llm_policy=str(_get_col("llm_policy") or ""),
+            job_type=str(_get_col("job_type") or "dialog"),
             status=str(_get_col("status") or ""),
             attempts=_safe_json_dict(_get_col("attempts")),
             next_retry_at=(str(_get_col("next_retry_at")) if _get_col("next_retry_at") else None),

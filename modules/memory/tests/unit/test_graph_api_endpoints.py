@@ -159,6 +159,8 @@ def test_graph_upsert_injects_tenant_id(monkeypatch):
                 "source_id": "demo.mp4",
                 "t_media_start": 0.0,
                 "t_media_end": 1.0,
+                "user_id": ["u:1"],
+                "memory_domain": "media",
             }
         ]
     }
@@ -188,12 +190,84 @@ def test_graph_upsert_uses_token_mapping(monkeypatch):
         },
     )
     client = TestClient(srv.app)
-    body = {"segments": [{"id": "seg-a", "source_id": "demo.mp4", "t_media_start": 0.0, "t_media_end": 1.0}]}
+    body = {
+        "segments": [
+            {
+                "id": "seg-a",
+                "source_id": "demo.mp4",
+                "t_media_start": 0.0,
+                "t_media_end": 1.0,
+                "user_id": ["u:1"],
+                "memory_domain": "media",
+            }
+        ]
+    }
     resp = client.post("/graph/v0/upsert", headers={"X-API-Token": "token-1"}, json=body)
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
     assert isinstance(stub.upsert_payload, GraphUpsertRequest)
     assert all(seg.tenant_id == "tenant-mapped" for seg in stub.upsert_payload.segments)
+
+
+def test_graph_upsert_rejects_missing_scope(monkeypatch):
+    _, stub, client = _setup(monkeypatch)
+    body = {
+        "segments": [
+            {
+                "id": "seg-a",
+                "source_id": "demo.mp4",
+                "t_media_start": 0.0,
+                "t_media_end": 1.0,
+            }
+        ]
+    }
+    resp = client.post("/graph/v0/upsert", headers={"X-Tenant-ID": "tenant-a"}, json=body)
+    assert resp.status_code == 422
+    assert stub.upsert_payload is None
+
+
+def test_graph_upsert_injects_tenant_for_all_graph_sequences(monkeypatch):
+    from modules.memory.contracts.graph_models import GraphUpsertRequest
+
+    _, stub, client = _setup(monkeypatch)
+    body = {
+        "utterances": [
+            {
+                "id": "utt-1",
+                "raw_text": "hello",
+                "t_media_start": 0.0,
+                "t_media_end": 1.0,
+                "segment_id": "seg-a",
+                "user_id": ["u:1"],
+                "memory_domain": "media",
+            }
+        ],
+        "knowledge": [
+            {
+                "id": "kn-1",
+                "summary": "hello",
+                "user_id": ["u:1"],
+                "memory_domain": "media",
+            }
+        ],
+        "pending_equivs": [
+            {
+                "id": "peq-1",
+                "entity_id": "ent-1",
+                "candidate_id": "ent-2",
+                "status": "pending",
+                "user_id": ["u:1"],
+                "memory_domain": "media",
+            }
+        ],
+    }
+    resp = client.post("/graph/v0/upsert", headers={"X-Tenant-ID": "tenant-a"}, json=body)
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert isinstance(stub.upsert_payload, GraphUpsertRequest)
+    assert all(utt.tenant_id == "tenant-a" for utt in stub.upsert_payload.utterances)
+    assert all(kn.tenant_id == "tenant-a" for kn in stub.upsert_payload.knowledge)
+    assert all(peq.tenant_id == "tenant-a" for peq in stub.upsert_payload.pending_equivs)
 
 def test_graph_search_v1_endpoint(monkeypatch):
     _, stub, client = _setup(monkeypatch)

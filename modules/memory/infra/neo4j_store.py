@@ -4275,6 +4275,118 @@ RETURN count(ev) AS deleted
             )
             return {"events": 0, "knowledge": 0}
 
+    async def purge_source_except_graph(
+        self,
+        *,
+        tenant_id: str,
+        source_id: str,
+        keep_node_ids: List[str],
+    ) -> Dict[str, int]:
+        """Delete stale nodes for one source while preserving the provided node ids."""
+        import time as _t
+
+        empty = {
+            "segments": 0,
+            "events": 0,
+            "utterances": 0,
+            "evidences": 0,
+            "timeslices": 0,
+            "knowledge": 0,
+        }
+        if self._cb_open_until and _t.time() < self._cb_open_until:
+            return dict(empty)
+        if not self._driver:
+            return dict(empty)
+        src = str(source_id or "").strip()
+        if not src:
+            return dict(empty)
+        keep_ids = [str(x) for x in (keep_node_ids or []) if str(x).strip()]
+        try:
+            with self._driver.session(database=self._database) as sess:  # type: ignore[attr-defined]
+                counts: Dict[str, int] = {}
+                knowledge_cypher = """
+MATCH (k:Knowledge {tenant_id: $tenant})-[:DERIVED_FROM]->(ev:Event {tenant_id: $tenant})-[:SUMMARIZES]->(seg:MediaSegment {tenant_id: $tenant, source_id: $source})
+WHERE (size($keep_ids) = 0 OR NOT k.id IN $keep_ids)
+WITH collect(DISTINCT k) AS ks
+UNWIND ks AS k
+DETACH DELETE k
+RETURN count(k) AS deleted
+"""
+                timeslice_from_segment_cypher = """
+MATCH (ts:TimeSlice {tenant_id: $tenant})-[:COVERS_SEGMENT]->(seg:MediaSegment {tenant_id: $tenant, source_id: $source})
+WHERE (size($keep_ids) = 0 OR NOT ts.id IN $keep_ids)
+WITH collect(DISTINCT ts) AS tss
+UNWIND tss AS ts
+DETACH DELETE ts
+RETURN count(ts) AS deleted
+"""
+                timeslice_from_event_cypher = """
+MATCH (ts:TimeSlice {tenant_id: $tenant})-[:COVERS_EVENT]->(ev:Event {tenant_id: $tenant})-[:SUMMARIZES]->(seg:MediaSegment {tenant_id: $tenant, source_id: $source})
+WHERE (size($keep_ids) = 0 OR NOT ts.id IN $keep_ids)
+WITH collect(DISTINCT ts) AS tss
+UNWIND tss AS ts
+DETACH DELETE ts
+RETURN count(ts) AS deleted
+"""
+                event_cypher = """
+MATCH (ev:Event {tenant_id: $tenant})-[:SUMMARIZES]->(seg:MediaSegment {tenant_id: $tenant, source_id: $source})
+WHERE (size($keep_ids) = 0 OR NOT ev.id IN $keep_ids)
+WITH collect(DISTINCT ev) AS evs
+UNWIND evs AS ev
+DETACH DELETE ev
+RETURN count(ev) AS deleted
+"""
+                utterance_cypher = """
+MATCH (seg:MediaSegment {tenant_id: $tenant, source_id: $source})
+WITH collect(DISTINCT seg.id) AS seg_ids
+MATCH (utt:UtteranceEvidence {tenant_id: $tenant})
+WHERE utt.segment_id IN seg_ids
+  AND (size($keep_ids) = 0 OR NOT utt.id IN $keep_ids)
+WITH collect(DISTINCT utt) AS utts
+UNWIND utts AS utt
+DETACH DELETE utt
+RETURN count(utt) AS deleted
+"""
+                evidence_cypher = """
+MATCH (evd:Evidence {tenant_id: $tenant, source_id: $source})
+WHERE (size($keep_ids) = 0 OR NOT evd.id IN $keep_ids)
+WITH collect(DISTINCT evd) AS evds
+UNWIND evds AS evd
+DETACH DELETE evd
+RETURN count(evd) AS deleted
+"""
+                segment_cypher = """
+MATCH (seg:MediaSegment {tenant_id: $tenant, source_id: $source})
+WHERE (size($keep_ids) = 0 OR NOT seg.id IN $keep_ids)
+WITH collect(DISTINCT seg) AS segs
+UNWIND segs AS seg
+DETACH DELETE seg
+RETURN count(seg) AS deleted
+"""
+
+                k_row = sess.run(knowledge_cypher, tenant=tenant_id, source=src, keep_ids=keep_ids).single()
+                ts_seg_row = sess.run(timeslice_from_segment_cypher, tenant=tenant_id, source=src, keep_ids=keep_ids).single()
+                ts_evt_row = sess.run(timeslice_from_event_cypher, tenant=tenant_id, source=src, keep_ids=keep_ids).single()
+                e_row = sess.run(event_cypher, tenant=tenant_id, source=src, keep_ids=keep_ids).single()
+                utt_row = sess.run(utterance_cypher, tenant=tenant_id, source=src, keep_ids=keep_ids).single()
+                evd_row = sess.run(evidence_cypher, tenant=tenant_id, source=src, keep_ids=keep_ids).single()
+                seg_row = sess.run(segment_cypher, tenant=tenant_id, source=src, keep_ids=keep_ids).single()
+
+                counts["knowledge"] = int((k_row or {}).get("deleted", 0) or 0)
+                counts["timeslices"] = int((ts_seg_row or {}).get("deleted", 0) or 0) + int((ts_evt_row or {}).get("deleted", 0) or 0)
+                counts["events"] = int((e_row or {}).get("deleted", 0) or 0)
+                counts["utterances"] = int((utt_row or {}).get("deleted", 0) or 0)
+                counts["evidences"] = int((evd_row or {}).get("deleted", 0) or 0)
+                counts["segments"] = int((seg_row or {}).get("deleted", 0) or 0)
+                return counts
+        except Exception as exc:
+            self._logger.error(
+                "neo4j.purge_source_except_graph.error",
+                extra={"event": "neo4j.purge_source_except_graph", "tenant_id": tenant_id, "status": "error", "reason": str(exc)},
+                exc_info=True,
+            )
+            return dict(empty)
+
     async def export_srot(
         self,
         *,

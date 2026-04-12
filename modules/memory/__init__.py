@@ -36,6 +36,7 @@ from modules.memory.application.service import MemoryService
 
 # High-level client pipeline API (dialog ingestion)
 from modules.memory.session_write import session_write
+from modules.memory.media_session_write import media_session_write
 from modules.memory.retrieval import retrieval
 from modules.memory.adapters.http_memory_port import HttpMemoryPort
 from modules.memory.application.llm_adapter import (
@@ -77,6 +78,7 @@ __all__ = [
     "GraphTimeSlice",
     "MemoryService",
     "session_write",
+    "media_session_write",
     "retrieval",
     "HttpMemoryPort",
     "LLMAdapter",

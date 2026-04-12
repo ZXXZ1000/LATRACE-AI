@@ -44,3 +44,4 @@ def test_pg_store_row_to_record_parses_str_json() -> None:
     assert rec.last_error.get("code") == "x"
     assert rec.stage2_marks and rec.stage2_marks[0].get("keep") is True
     assert rec.client_meta.get("memory_policy") == "user"
+    assert rec.job_type == "dialog"

@@ -5,6 +5,7 @@ For integration tests, use a real PostgreSQL database via testcontainers or dock
 """
 from __future__ import annotations
 
+import os
 import pytest
 import pytest_asyncio
 from datetime import datetime, timezone
@@ -71,6 +72,7 @@ class TestPgIngestJobStoreRowToRecord:
             "user_tokens": ["user:alice"],
             "memory_domain": "dialog",
             "llm_policy": "default",
+            "job_type": "dialog",
             "status": "RECEIVED",
             "attempts": {"stage2": 0, "stage3": 0},
             "next_retry_at": None,
@@ -119,6 +121,7 @@ class TestPgIngestJobStorePayloadCheck:
             user_tokens=["user:alice"],
             memory_domain="dialog",
             llm_policy="default",
+            job_type="dialog",
             status="RECEIVED",
             attempts={"stage2": 0, "stage3": 0},
             next_retry_at=None,
@@ -147,6 +150,7 @@ class TestPgIngestJobStorePayloadCheck:
             user_tokens=["user:alice"],
             memory_domain="dialog",
             llm_policy="default",
+            job_type="dialog",
             status="RECEIVED",
             attempts={"stage2": 0, "stage3": 0},
             next_retry_at=None,
@@ -175,6 +179,7 @@ class TestPgIngestJobStorePayloadCheck:
             user_tokens=[],
             memory_domain="dialog",
             llm_policy="default",
+            job_type="dialog",
             status="RECEIVED",
             attempts={"stage2": 0, "stage3": 0},
             next_retry_at=None,
@@ -189,8 +194,39 @@ class TestPgIngestJobStorePayloadCheck:
 
         assert store._payload_has_core(job) is False
 
+    def test_payload_has_core_media_job(self):
+        """Test payload check with valid media source payload."""
+        store = PgIngestJobStore.__new__(PgIngestJobStore)
+
+        job = IngestJobRecord(
+            job_id="job_media_1",
+            session_id="media::demo.mp4",
+            commit_id=None,
+            tenant_id="tenant_1",
+            api_key_id=None,
+            request_id=None,
+            user_tokens=["user:alice"],
+            memory_domain="media",
+            llm_policy="default",
+            job_type="media_video",
+            status="RECEIVED",
+            attempts={"stage2": 0, "stage3": 0},
+            next_retry_at=None,
+            last_error=None,
+            metrics={},
+            created_at="2024-01-01T12:00:00Z",
+            updated_at="2024-01-01T12:00:00Z",
+            cursor_committed=None,
+            turns=[],
+            client_meta={},
+            payload_raw='{"routing":{"user_id":["user:alice"],"memory_domain":"media"},"source_ref":{"source_id":"demo.mp4","file_path":"/tmp/demo.mp4"}}',
+        )
+
+        assert store._payload_has_core(job) is True
+
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(not os.getenv("MEMORY_PG_HOST"), reason="PostgreSQL not available (set MEMORY_PG_HOST)")
 class TestPgIngestJobStoreIntegration:
     """Integration tests requiring a PostgreSQL connection.
 

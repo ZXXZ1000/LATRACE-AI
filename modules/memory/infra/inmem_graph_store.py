@@ -108,6 +108,23 @@ class InMemGraphStore:
         # In-memory store does not track source_id/event ids; return no-op counts.
         return {"events": 0, "knowledge": 0}
 
+    async def purge_source_except_graph(
+        self,
+        *,
+        tenant_id: str,
+        source_id: str,
+        keep_node_ids: List[str],
+    ) -> Dict[str, int]:
+        # In-memory store does not track source_id; return no-op counts.
+        return {
+            "segments": 0,
+            "events": 0,
+            "utterances": 0,
+            "evidences": 0,
+            "timeslices": 0,
+            "knowledge": 0,
+        }
+
     # Testing helpers
     def get_edge_weight(self, src_id: str, dst_id: str, rel_type: str) -> Optional[float]:
         key = _EdgeKey(src_id, dst_id, rel_type)

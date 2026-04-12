@@ -70,6 +70,7 @@ def test_ingest_default_returns_202(monkeypatch, tmp_path) -> None:
     assert res.status_code == 202
     data = res.json()
     assert data["job_id"]
+    assert data["job_type"] == "dialog"
     assert data.get("status_url")
     assert data.get("enqueue") is True
 
@@ -99,3 +100,57 @@ def test_ingest_enqueue_failure_returns_503(monkeypatch, tmp_path) -> None:
     data = res.json()
     assert data["job_id"]
     assert data.get("status") == "ENQUEUE_FAILED"
+
+
+def test_ingest_media_video_returns_202(monkeypatch, tmp_path) -> None:
+    from modules.memory.api import server as srv
+
+    monkeypatch.setattr(srv, "_auth_settings", _auth_disabled_settings)
+    db_path = tmp_path / "ingest_jobs.db"
+    monkeypatch.setattr(srv, "ingest_store", AsyncIngestJobStore({"sqlite_path": str(db_path)}))
+
+    async def _enqueue_stub(_record):  # type: ignore[no-untyped-def]
+        return True
+
+    monkeypatch.setattr(srv, "_enqueue_ingest_job", _enqueue_stub)
+
+    client = TestClient(srv.app)
+    body = {
+        "routing": {"user_id": ["u:1"], "memory_domain": "media"},
+        "source_ref": {"source_id": "demo.mp4", "file_path": "/tmp/demo.mp4"},
+        "commit_id": "m1",
+    }
+    res = client.post("/ingest/media/video/v1", headers={"X-Tenant-ID": "t1"}, json=body)
+    assert res.status_code == 202
+    data = res.json()
+    assert data["job_id"]
+    assert data["job_type"] == "media_video"
+    assert data["source_id"] == "demo.mp4"
+    record = srv.ingest_store._get_job_sync(data["job_id"])  # type: ignore[attr-defined]
+    assert record is not None
+    assert record.job_type == "media_video"
+    assert record.memory_domain == "media"
+
+
+def test_ingest_media_requires_routing_user_id(monkeypatch, tmp_path) -> None:
+    from modules.memory.api import server as srv
+
+    monkeypatch.setattr(srv, "_auth_settings", _auth_disabled_settings)
+    db_path = tmp_path / "ingest_jobs.db"
+    monkeypatch.setattr(srv, "ingest_store", AsyncIngestJobStore({"sqlite_path": str(db_path)}))
+
+    async def _enqueue_stub(_record):  # type: ignore[no-untyped-def]
+        return True
+
+    monkeypatch.setattr(srv, "_enqueue_ingest_job", _enqueue_stub)
+
+    client = TestClient(srv.app)
+    body = {
+        "routing": {"user_id": [], "memory_domain": "media"},
+        "source_ref": {"source_id": "demo.mp4", "file_path": "/tmp/demo.mp4"},
+    }
+    res = client.post("/ingest/media/audio/v1", headers={"X-Tenant-ID": "t1"}, json=body)
+    assert res.status_code == 400
+    payload = res.json()
+    assert payload["code"] == "missing_core_requirements"
+    assert "routing.user_id" in payload["missing"]
