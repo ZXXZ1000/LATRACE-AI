@@ -15,7 +15,7 @@ Read this in [English](README.md) | [中文](README_zh.md)
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%2B-blue.svg" alt="Python"></a>
   <a href="https://github.com/ZXXZ1000/LATRACE-AI/actions/workflows/ci.yml"><img src="https://github.com/ZXXZ1000/LATRACE-AI/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/ZXXZ1000/LATRACE-AI/releases"><img src="https://img.shields.io/github/v/release/ZXXZ1000/LATRACE-AI?display_name=tag" alt="Release"></a>
-  <a href="https://ghcr.io/zxxz1000/latrace-memory"><img src="https://img.shields.io/badge/GHCR-latrace--memory-2496ED?logo=docker&logoColor=white" alt="GHCR"></a>
+  <a href="https://ghcr.io/zxxz1000/latrace-ai"><img src="https://img.shields.io/badge/GHCR-latrace--ai-2496ED?logo=docker&logoColor=white" alt="GHCR"></a>
   <a href="https://github.com/ZXXZ1000/LATRACE-AI/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
 </p>
 
@@ -24,7 +24,7 @@ Read this in [English](README.md) | [中文](README_zh.md)
   <a href="#-two-ways-to-build-with-latrace"><b>Choose a Mode</b></a> ·
   <a href="docs/api_reference.md"><b>API Reference</b></a> ·
   <a href="docs/adk_integration.md"><b>ADK Guide</b></a> ·
-  <a href="https://ghcr.io/zxxz1000/latrace-memory"><b>Docker Image</b></a>
+  <a href="https://ghcr.io/zxxz1000/latrace-ai"><b>Docker Image</b></a>
 </p>
 
 </div>
@@ -97,8 +97,8 @@ docker compose up --build
 **Pull the published image directly:**
 
 ```bash
-docker pull ghcr.io/zxxz1000/latrace-memory:latest
-docker run --rm -p 8000:8000 --env-file .env ghcr.io/zxxz1000/latrace-memory:latest
+docker pull ghcr.io/zxxz1000/latrace-ai:latest
+docker run --rm -p 8000:8000 --env-file .env ghcr.io/zxxz1000/latrace-ai:latest
 ```
 
 > Qdrant and Neo4j are not bundled — run them separately or point to existing instances.
@@ -323,7 +323,7 @@ flowchart TB
 ## 🔁 CI / CD
 
 - PRs run `ruff` + `pytest` on `modules/memory`.
-- Merges to `main` publish the Docker image to GHCR (`ghcr.io/zxxz1000/latrace-memory:latest`).
+- Merges to `main` publish the Docker image to GHCR (`ghcr.io/zxxz1000/latrace-ai:latest`).
 - Embedding connectivity tests are skipped by default. Set `REQUIRE_EMBEDDING_CONNECTIVITY=1` with provider credentials to enable.
 
 ## 🤝 Contributing

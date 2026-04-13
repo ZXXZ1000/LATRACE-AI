@@ -8,10 +8,10 @@
 #   docker compose up --build
 #
 # Build:
-#   docker build -t latrace-memory .
+#   docker build -t latrace-ai .
 #
 # Run against external dependencies:
-#   docker run --rm -p 8000:8000 --env-file .env latrace-memory
+#   docker run --rm -p 8000:8000 --env-file .env latrace-ai
 # =============================================================================
 
 FROM python:3.12-slim AS builder

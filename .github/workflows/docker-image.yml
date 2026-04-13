@@ -15,7 +15,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_OWNER: ${{ github.repository_owner }}
-  IMAGE_NAME: latrace-memory
+  IMAGE_NAME: latrace-ai
 
 jobs:
   build-and-push:

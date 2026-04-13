@@ -15,7 +15,7 @@ Read this in [English](README.md) | [中文](README_zh.md)
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%2B-blue.svg" alt="Python"></a>
   <a href="https://github.com/ZXXZ1000/LATRACE-AI/actions/workflows/ci.yml"><img src="https://github.com/ZXXZ1000/LATRACE-AI/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/ZXXZ1000/LATRACE-AI/releases"><img src="https://img.shields.io/github/v/release/ZXXZ1000/LATRACE-AI?display_name=tag" alt="Release"></a>
-  <a href="https://ghcr.io/zxxz1000/latrace-memory"><img src="https://img.shields.io/badge/GHCR-latrace--memory-2496ED?logo=docker&logoColor=white" alt="GHCR"></a>
+  <a href="https://ghcr.io/zxxz1000/latrace-ai"><img src="https://img.shields.io/badge/GHCR-latrace--ai-2496ED?logo=docker&logoColor=white" alt="GHCR"></a>
   <a href="https://github.com/ZXXZ1000/LATRACE-AI/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
 </p>
 
@@ -24,7 +24,7 @@ Read this in [English](README.md) | [中文](README_zh.md)
   <a href="#two-ways"><b>选择接入模式</b></a> ·
   <a href="docs/api_reference.md"><b>API 文档</b></a> ·
   <a href="docs/adk_integration.md"><b>ADK 指南</b></a> ·
-  <a href="https://ghcr.io/zxxz1000/latrace-memory"><b>Docker 镜像</b></a>
+  <a href="https://ghcr.io/zxxz1000/latrace-ai"><b>Docker 镜像</b></a>
 </p>
 
 </div>
@@ -99,8 +99,8 @@ docker compose up --build
 **直接拉取已发布镜像：**
 
 ```bash
-docker pull ghcr.io/zxxz1000/latrace-memory:latest
-docker run --rm -p 8000:8000 --env-file .env ghcr.io/zxxz1000/latrace-memory:latest
+docker pull ghcr.io/zxxz1000/latrace-ai:latest
+docker run --rm -p 8000:8000 --env-file .env ghcr.io/zxxz1000/latrace-ai:latest
 ```
 
 > 镜像里只包含应用服务本身，不包含 Qdrant 和 Neo4j；它们需要你单独启动，或连接到现有实例。
@@ -329,7 +329,7 @@ flowchart TB
 ## 🔁 CI / CD
 
 - Pull Request 会对 `modules/memory` 运行 `ruff` 与 `pytest`。
-- 合并到 `main` 后，会自动把 Docker 镜像发布到 GHCR：`ghcr.io/zxxz1000/latrace-memory:latest`。
+- 合并到 `main` 后，会自动把 Docker 镜像发布到 GHCR：`ghcr.io/zxxz1000/latrace-ai:latest`。
 - embedding 连通性测试在开源默认 CI 中会跳过；如需强制执行，请配置提供商凭据并设置 `REQUIRE_EMBEDDING_CONNECTIVITY=1`。
 
 ## 🤝 参与贡献
