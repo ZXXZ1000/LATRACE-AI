@@ -52,6 +52,8 @@ It also treats image, audio, and video as first-class citizens. Text, audio, and
 - A multi-tenant product that keeps tenant, user, and domain data strictly isolated
 - A full-modal product that can connect text, audio, image, and video into one graph and one retrieval surface
 
+**Core keywords:** multimodal memory, video ingest, audio ingest, knowledge graph, TKG, tenant isolation, agent memory
+
 ## 🌐 One Graph, All Modalities
 
 LATRACE uses the same memory backbone for every modality:

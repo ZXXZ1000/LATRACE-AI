@@ -34,6 +34,13 @@ RUN uv sync --frozen --no-dev
 
 FROM python:3.12-slim AS runtime
 
+LABEL org.opencontainers.image.title="LATRACE Memory" \
+      org.opencontainers.image.description="Multimodal memory service for text, audio, image, and video with tenant-isolated graph retrieval." \
+      org.opencontainers.image.source="https://github.com/ZXXZ1000/LATRACE-AI" \
+      org.opencontainers.image.url="https://github.com/ZXXZ1000/LATRACE-AI" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.vendor="ZXXZ1000"
+
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
