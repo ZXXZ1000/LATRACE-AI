@@ -11,12 +11,12 @@
 Read this in [English](README.md) | [中文](README_zh.md)
 
 <p align="center">
-  <a href="https://github.com/ZXXZ1000/LATRACE/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
+  <a href="https://github.com/ZXXZ1000/LATRACE-AI/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%2B-blue.svg" alt="Python"></a>
-  <a href="https://github.com/ZXXZ1000/LATRACE/actions/workflows/ci.yml"><img src="https://github.com/ZXXZ1000/LATRACE/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/ZXXZ1000/LATRACE/releases"><img src="https://img.shields.io/github/v/release/ZXXZ1000/LATRACE?display_name=tag" alt="Release"></a>
+  <a href="https://github.com/ZXXZ1000/LATRACE-AI/actions/workflows/ci.yml"><img src="https://github.com/ZXXZ1000/LATRACE-AI/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ZXXZ1000/LATRACE-AI/releases"><img src="https://img.shields.io/github/v/release/ZXXZ1000/LATRACE-AI?display_name=tag" alt="Release"></a>
   <a href="https://ghcr.io/zxxz1000/latrace-memory"><img src="https://img.shields.io/badge/GHCR-latrace--memory-2496ED?logo=docker&logoColor=white" alt="GHCR"></a>
-  <a href="https://github.com/ZXXZ1000/LATRACE/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
+  <a href="https://github.com/ZXXZ1000/LATRACE-AI/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
 </p>
 
 <p align="center">
@@ -39,15 +39,29 @@ Read this in [English](README.md) | [中文](README_zh.md)
 
 Most AI apps are amnesiac — they forget everything after each conversation. LATRACE fixes this.
 
-LATRACE is a **production-ready memory service** for chatbots, copilots, companions, and agents that need memory you can actually control.
+LATRACE is a **production-ready multimodal memory service** for chatbots, copilots, companions, and agents that need memory you can actually control.
 
 Instead of stuffing more text into a context window, LATRACE turns conversations into a living memory layer: tracking people, preferences, facts, relationships, states, and timelines across sessions.
+
+It also treats image, audio, and video as first-class citizens. Text, audio, and video do not form separate memory silos; they are compiled into the same tenant-isolated graph so one timeline can explain a quote, a voice segment, and a video scene with the same evidence chain.
 
 **What this unlocks in products:**
 - A chatbot that remembers user preferences, hobbies, and ongoing plans across sessions
 - A companion agent that can follow relationship shifts, emotional state, and stress over time
 - An agent system that asks explicit memory questions instead of guessing from retrieved chunks
 - A multi-tenant product that keeps tenant, user, and domain data strictly isolated
+- A full-modal product that can connect text, audio, image, and video into one graph and one retrieval surface
+
+## 🌐 One Graph, All Modalities
+
+LATRACE uses the same memory backbone for every modality:
+
+- Text enters through `POST /ingest/dialog/v1`
+- Audio enters through `POST /ingest/media/audio/v1`
+- Video enters through `POST /ingest/media/video/v1`
+- All three land in the same TKG, with the same `tenant_id`, `user_id`, `memory_domain`, time semantics, and write / retrieval contracts
+
+The practical result is simple: a spoken sentence, a frame sequence, and a dialog snippet can be queried, explained, and published together instead of living in separate systems.
 
 ---
 
@@ -56,7 +70,7 @@ Instead of stuffing more text into a context window, LATRACE turns conversations
 Three commands to a running memory service:
 
 ```bash
-git clone https://github.com/ZXXZ1000/LATRACE.git && cd LATRACE
+git clone https://github.com/ZXXZ1000/LATRACE-AI.git && cd LATRACE-AI
 cp .env.example .env
 docker compose up --build
 ```
@@ -72,6 +86,7 @@ docker compose up --build
 **Next step after booting the stack:**
 - Read the [API Reference](docs/api_reference.md) for endpoint contracts and headers
 - Start with `POST /ingest/dialog/v1` to write memory, then `POST /retrieval/dialog/v2` to recall it
+- If you want multimodal memory, send video via `POST /ingest/media/video/v1` and audio via `POST /ingest/media/audio/v1`
 - If you want agent-style memory tools instead of prompt injection, jump to the [ADK Guide](docs/adk_integration.md)
 
 <details>
@@ -102,6 +117,8 @@ uv run python -m uvicorn modules.memory.api.server:app --host 0.0.0.0 --port 800
 ## 🔌 Two Ways to Build with LATRACE
 
 Pick the integration style that matches your product. Both work against the same memory service.
+
+No matter which mode you choose, all modalities still converge on the same graph, the same isolation model, and the same explainability surface.
 
 <div align="center">
 
@@ -320,6 +337,6 @@ Questions? [zx19970301@gmail.com](mailto:zx19970301@gmail.com)
 
 <div align="center">
 
-[Star us on GitHub](https://github.com/ZXXZ1000/LATRACE) · [API Reference](docs/api_reference.md) · [Benchmark Guide](docs/benchmark_guide.md) · [Discussions](https://github.com/ZXXZ1000/LATRACE/discussions)
+[Star us on GitHub](https://github.com/ZXXZ1000/LATRACE-AI) · [API Reference](docs/api_reference.md) · [Benchmark Guide](docs/benchmark_guide.md) · [Discussions](https://github.com/ZXXZ1000/LATRACE-AI/discussions)
 
 </div>

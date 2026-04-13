@@ -7,6 +7,8 @@
 
 This document targets developers integrating with LATRACE Memory. The goal is to provide a comprehensive, runnable, and aligned integration contract, detailing HTTP boundaries, public vs internal endpoints, and data contracts.
 
+LATRACE Memory is a **multimodal / full-modal memory service**: text, image, audio, and video are compiled into the same tenant-isolated backbone and converge on the same typed graph and retrieval surface.
+
 **Applicability:**
 - For **ADK Semantic Tools (Layer 1)**, please review `adk_integration.md` first (which covers tool schemas, runtime wiring, and agent orchestration).
 - For **tenant boundaries and request scoping**, please review `tenant_isolation.md` (which covers `tenant_id`, `user_tokens`, and namespace guidance).
@@ -30,21 +32,23 @@ This document targets developers integrating with LATRACE Memory. The goal is to
 ## 1. Overview
 
 ### 1.1 Service Positioning
-LATRACE Memory is a "**Retrieval-Augmented Memory Service**", segregated into two core layers:
+LATRACE Memory is a "**Multimodal Memory Service**", segregated into three core layers:
 1. **Memory Layer (Recall + Filter + Optional Graph Expansion + Rerank)**: Evaluated via `POST /search`. Built for injecting broad context into LLMs.
-2. **Graph Layer (Typed TKG: Entities/Events/Evidences/TimeSlices)**: Evaluated via `/graph/v0/*` and `/graph/v1/*`. Built for strict structure, exact event tracking, and explicit timelines.
+2. **Graph Layer (Typed TKG: Entities/Events/Evidences/TimeSlices/Knowledge)**: Evaluated via `/graph/v0/*` and `/graph/v1/*`. Built for strict structure, exact event tracking, and explicit timelines.
+3. **Multimodal Ingress Layer (Dialog / Audio / Video)**: Evaluated via `POST /ingest/dialog/v1`, `POST /ingest/media/video/v1`, and `POST /ingest/media/audio/v1`. Built for compiling raw sources into the same graph and retrieval backbone.
 
-*Rule of Thumb:* `/search` handles fuzzy conceptual recall. The Graph APIs handle structured exact topological queries.
+*Rule of Thumb:* `/search` handles fuzzy conceptual recall. The Graph APIs handle structured exact topological queries. Multimodal ingest handles source-to-graph compilation; it does not create a separate memory silo for media.
 
 ### 1.2 Minimal Integration Path
 1. **Writing (Recommended: Batch upon session close)**
    - **High-Level**: `POST /ingest/dialog/v1` (the recommended session-ingest endpoint; handles the ingestion workflow automatically).
+   - **High-Level**: `POST /ingest/media/video/v1` and `POST /ingest/media/audio/v1` (source-based multimodal ingress; compile into the same graph).
    - **Low-Level (Fallback)**: `POST /write` (Store `MemoryEntry` vectors explicitly).
 2. **Retrieving (During Agent Runtime)**
    - **High-Level**: `POST /retrieval/dialog/v2` (Multi-path recall + fusion + optional Synthesis).
    - **Low-Level (Fallback)**: `POST /search` (Returns evidence `hits` + `neighbors` + `trace`).
 
-### 1.3 The Three Retrieval Entries 
+### 1.3 The Three Retrieval Surfaces
 - `POST /retrieval/dialog/v2`: **Advanced Dialogue Orchestration** (Multi-channel recall + Graph interpretation + Option QA). This is the default recommendation.
 - `POST /search`: **Vector Recall (Qdrant ANN)**. Optional overlays for BM25, TKG expansion, and time decay. Best for implicit natural language.
 - `POST /graph/v1/search`: **Structured Event Search** (Neo4j). Explicit keyword/entity matching. It is *not* an approximation fallback.
@@ -82,8 +86,10 @@ Memory Server (Service Root)
 │   ├── GET  /graph/v0/entities/resolve
 │   └── GET  /graph/v0/explain/*    (Evidence Chain Derivation)
 │
-├── 🤖 4. Agent SDK Proxies
+├── 🤖 4. Multimodal Ingress & Retrieval
 │   ├── POST /ingest/dialog/v1      (Session dialog ingestion)
+│   ├── POST /ingest/media/video/v1 (Video source ingestion)
+│   ├── POST /ingest/media/audio/v1 (Audio source ingestion)
 │   ├── GET  /ingest/jobs/{id}      (Job state tracking)
 │   └── POST /retrieval/dialog/v2   (Orchestrated inference recall)
 │
@@ -129,7 +135,7 @@ When `auth.signing.required=true`, mutating endpoints (`write/update/delete`) de
 curl -sS "http://127.0.0.1:8000/health" -H "X-Tenant-ID: t1"
 ```
 
-### 3.2 Atomic Ingestion: `POST /write`
+### 3.2 Atomic Write: `POST /write`
 ```bash
 curl -sS "http://127.0.0.1:8000/write" \
   -H "Content-Type: application/json" \
@@ -152,7 +158,7 @@ curl -sS "http://127.0.0.1:8000/write" \
   }'
 ```
 
-### 3.3 Core Execution: `POST /search`
+### 3.3 Hybrid Search: `POST /search`
 ```bash
 curl -sS "http://127.0.0.1:8000/search" \
   -H "Content-Type: application/json" \
@@ -169,6 +175,45 @@ curl -sS "http://127.0.0.1:8000/search" \
   }'
 ```
 
+### 3.4 Multimodal Ingestion: `POST /ingest/media/video/v1`
+```bash
+curl -sS "http://127.0.0.1:8000/ingest/media/video/v1" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: t1" \
+  -d '{
+    "routing": {
+      "user_id": ["u:1001"],
+      "memory_domain": "video"
+    },
+    "source_ref": {
+      "source_id": "demo.mp4",
+      "file_path": "/data/demo.mp4"
+    },
+    "overwrite_existing": true,
+    "enable_visual_operator": true,
+    "enable_audio_operator": true
+  }'
+```
+
+### 3.5 Multimodal Ingestion: `POST /ingest/media/audio/v1`
+```bash
+curl -sS "http://127.0.0.1:8000/ingest/media/audio/v1" \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: t1" \
+  -d '{
+    "routing": {
+      "user_id": ["u:1001"],
+      "memory_domain": "audio"
+    },
+    "source_ref": {
+      "source_id": "demo.wav",
+      "file_path": "/data/demo.wav"
+    },
+    "overwrite_existing": false,
+    "enable_audio_operator": true
+  }'
+```
+
 ---
 
 ## 4. Core Concepts & Data Contracts
@@ -179,7 +224,7 @@ A `MemoryEntry` dictates atomic vector storage objects.
 | --- | --- | --- | --- |
 | `id` | `string` | No | Server assigns UUID if absent. |
 | `kind` | `string` | Yes | `"episodic" \| "semantic"` |
-| `modality` | `string` | Yes | `"text" \| "image" \| "audio" \| "structured"` |
+| `modality` | `string` | Yes | `"text" \| "image" \| "audio" \| "video" \| "structured"` |
 | `contents` | `string[]` | Yes | Core payload injected to `contents[0]`. |
 | `metadata` | `object` | Yes | Target routing filters (`user_id`, `run_id`, `memory_domain`, `timestamp`). |
 
@@ -197,11 +242,11 @@ Standard JSON configuration injected into `filters` mapping blocks.
 
 ## 5. API Reference (HTTP)
 
-### 5.1 Telemetry (`GET /health`)
+### 5.1 Health Check (`GET /health`)
 - Response: Status map checking `vectors` (Qdrant), `graph` (Neo4j), `llm_provider`, and `disk` buffers.
 - Error Code Mappings: `API_KEY_MISSING`, `AUTH_FAILED`, `BALANCE_BELOW_THRESHOLD`.
 
-### 5.2 L1: Dialog Ingest (`POST /ingest/dialog/v1`)
+### 5.2 Dialog Ingest (`POST /ingest/dialog/v1`)
 The safest method to process conversations recursively.
 
 With the default self-hosted `.env.example` settings, API auth is disabled and callers must send `X-Tenant-ID`. In that mode, `user_tokens` can be omitted because the server derives a stable user token from the tenant boundary.
@@ -217,11 +262,32 @@ With the default self-hosted `.env.example` settings, API auth is disabled and c
 
 *Returns:* `{"ok": true, "job_id": "job_123", "status": "RECEIVED"}` (Job queues automatically).
 
-### 5.3 Jobs State (`GET /ingest/jobs/{job_id}`)
+### 5.3 L1: Media Ingest (`POST /ingest/media/video/v1`, `POST /ingest/media/audio/v1`)
+Media ingest is source-based. You submit a `source_ref`, the service creates a job, the worker compiles the source into the same TKG backbone, and the graph writer persists it with the same tenant/user/domain isolation as dialog ingest.
+
+**Common request shape**
+
+| Field | Type | Req | Description |
+| --- | --- | --- | --- |
+| `routing.user_id` | `string[]` | Yes | Strong isolation axis. |
+| `routing.memory_domain` | `string` | Yes | Domain for governance and retrieval. |
+| `routing.run_id` | `string \| null` | No | Optional compile/run identifier. |
+| `routing.trace_id` | `string \| null` | No | Optional tracing identifier. |
+| `source_ref.source_id` | `string` | Yes | Stable source ID and purge scope. |
+| `source_ref.file_path` | `string \| null` | One of | Local or mounted source path. |
+| `source_ref.blob_ref` | `string \| null` | One of | Object storage reference. |
+| `source_ref.recorded_at` | `string \| null` | No | Optional RFC3339 recording timestamp. |
+| `commit_id` | `string \| null` | No | Idempotent key. |
+| `overwrite_existing` | `boolean` | No | When true, the service rewrites the same source scope safely. |
+
+The service accepts source references, not raw file bodies. For public deployments, prefer `blob_ref`; for same-host / on-prem deployments, `file_path` is acceptable.
+
+### 5.4 Jobs State (`GET /ingest/jobs/{job_id}`)
 Checks asynchronous ingestion tracks.
 *Returns Status Enums:* `RECEIVED`, `STAGE2_RUNNING`, `STAGE2_FAILED`, `STAGE3_RUNNING`, `STAGE3_FAILED`, `COMPLETED`.
+*Job Types:* `dialog`, `media_video`, `media_audio`.
 
-### 5.4 L1: Dialog Retrieval (`POST /retrieval/dialog/v2`)
+### 5.5 Dialog Retrieval (`POST /retrieval/dialog/v2`)
 Advanced orchestration for LLM inference (Hybrid Match + Graph Logic).
 
 | Field | Type | Req | Description |
@@ -233,24 +299,25 @@ Advanced orchestration for LLM inference (Hybrid Match + Graph Logic).
 | `client_meta` | `object` | Yes | Must include at least `memory_policy` and `user_id`; can also supply BYOK/provider metadata. |
 
 *Returns Evidence Map:* Containing `tkg_event_id`, `score`, `text`, `_base_score` and optionally `tkg_explain` array chains dictating exactly where memory derivations occurred.
+The same retrieval surface can explain dialog, image, audio, and video-derived evidence because they land in the same graph and share the same isolation keys.
 
-### 5.5 Core Search (`POST /search`)
+### 5.6 Core Search (`POST /search`)
 Raw Vector + Graph logic query executing nearest-neighbor algorithms over Qdrant.
 Includes `expand_graph=boolean` dictating if Neo4j neighborhoods should be loaded, and `threshold=number` to slice similarity metrics rigidly before Reranker pipelines execute.
 
-### 5.6 Basic Write (`POST /write`, `POST /update`, `POST /delete`, `POST /link`)
+### 5.7 Basic Write (`POST /write`, `POST /update`, `POST /delete`, `POST /link`)
 Low-level operations bypassing semantic LLM generation pipelines. Requires explicit `entries: []`, `patch: {}`, or graph `links: [{src_id, dst_id, rel_type}]`.
 
-### 5.7 Equivalencies (`/equiv/pending/*`)
+### 5.8 Equivalencies (`/equiv/pending/*`)
 Governs merges across separated identity mappings securely using approvals. Endpoints: `/equiv/pending/add`, `/confirm`, `/remove`.
 
-### 5.8 Dynamic Configurations (`PATCH /config`)
+### 5.9 Dynamic Configurations (`PATCH /config`)
 Hot-reloads system heuristics without rebooting the memory core. Endpoints overlay `memory.search.rerank`, graph limits, and scope resolutions. Modifies `alpha_vector`, `beta_bm25`, `gamma_graph`, etc.
 
 ---
 
 ## 5.22 Semantic Memory (Memory v1 Beta)
-*Deep entity extraction and parsing.*
+*Structured entity, relation, and state surfaces.*
 
 ### 5.22.1 / 5.22.2 Entity/Topic Queries
 - **`GET /memory/v1/entities`**: Queries paginated Entity objects (`name`, `type`, `first_mentioned`, `mention_count`).
@@ -313,9 +380,10 @@ Tracks shifting variable states against ISO limits.
 
 ---
 
-## 7. Best Practices: Writing Context (Dialog Ingress)
+## 7. Best Practices: Ingesting Context
 
 ### Rules of Engagement
 1. **Asynchronous Batches:** Submit entire dialogue sessions *once* they are finished or paused natively. Submitting on every single character generates unstable subgraph entities.
 2. **Never Consolidate Text:** Supplying `{"role": "user", "text": "USER said X, and AI said Y"}` is architecturally forbidden. Separate each actor explicitly across index arrays so `UtteranceEvidence` extraction targets correctly.
 3. **Commit Flags:** Pass highly stable `commit_id` hashes to `POST /ingest` algorithms natively to ensure that frontend network errors do not multiply entities on retry attempts. 
+4. **Media Sources:** For video and audio, submit a stable `source_ref` and let the service compile the source into the same graph. Prefer `blob_ref` for remote deployments and `file_path` only when the service can access the path directly.
