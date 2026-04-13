@@ -54,6 +54,16 @@ It also treats image, audio, and video as first-class citizens. Text, audio, and
 
 **Core keywords:** multimodal memory, video ingest, audio ingest, knowledge graph, TKG, tenant isolation, agent memory
 
+## 🎯 Use Cases
+
+Use LATRACE when you need one of these product capabilities:
+
+- Build long-term memory for AI agents, copilots, or chatbots without hand-rolling a memory stack
+- Add unified text, audio, and video memory to the same application instead of splitting modalities into separate silos
+- Keep memory tenant-isolated for SaaS products where `tenant_id`, `user_id`, and `memory_domain` must stay clean
+- Explain why a retrieval result exists by walking back through evidence, timeline, entity, and graph edges
+- Turn session data into a typed graph that supports retrieval, timeline views, entity profiles, and agent tools
+
 ## 🌐 One Graph, All Modalities
 
 LATRACE uses the same memory backbone for every modality:
@@ -64,6 +74,24 @@ LATRACE uses the same memory backbone for every modality:
 - All three land in the same TKG, with the same `tenant_id`, `user_id`, `memory_domain`, time semantics, and write / retrieval contracts
 
 The practical result is simple: a spoken sentence, a frame sequence, and a dialog snippet can be queried, explained, and published together instead of living in separate systems.
+
+## ❓ FAQ
+
+**What is LATRACE?**
+
+LATRACE is a multimodal memory service for AI products. It turns text, audio, image, and video into the same tenant-isolated typed graph and retrieval surface.
+
+**How is LATRACE different from plain RAG?**
+
+Plain RAG retrieves chunks. LATRACE writes memory as entities, events, states, timelines, and evidence chains, then lets you retrieve or query them in structured ways.
+
+**How do audio and video fit into the same graph as text?**
+
+They enter through source-based ingest endpoints, are compiled into the same TKG backbone, and reuse the same isolation, time semantics, and write contracts as dialog memory.
+
+**When should I use Retrieval API vs ADK tools?**
+
+Use the Retrieval API when you want the fastest path to memory-enhanced prompting. Use ADK tools when your agent should ask explicit memory questions at runtime.
 
 ---
 
