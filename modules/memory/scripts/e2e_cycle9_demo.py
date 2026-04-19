@@ -5,6 +5,7 @@ import os
 from dotenv import load_dotenv
 
 from modules.memory.application.service import MemoryService
+from modules.memory.application.config import load_memory_config
 from modules.memory.adapters.mem0_adapter import build_entries_from_mem0
 from modules.memory.infra.qdrant_store import QdrantStore
 from modules.memory.infra.neo4j_store import Neo4jStore
@@ -18,6 +19,13 @@ async def main() -> None:
     load_dotenv()
     cfg_env = os.path.join(os.path.dirname(__file__), "..", "config", ".env")
     load_dotenv(os.path.abspath(cfg_env))
+    cfg = load_memory_config()
+    text_dim = (
+        cfg.get("memory", {})
+        .get("vector_store", {})
+        .get("embedding", {})
+        .get("dim", int(os.getenv("EMBEDDING_DIM", "1024")))
+    )
 
     qdr = QdrantStore({
         "host": os.getenv("QDRANT_HOST", "127.0.0.1"),
@@ -27,7 +35,7 @@ async def main() -> None:
         "embedding": {
             "provider": os.getenv("EMBEDDING_PROVIDER", ""),
             "model": os.getenv("EMBEDDING_MODEL", ""),
-            "dim": int(os.getenv("EMBEDDING_DIM", "1536")),
+            "dim": int(text_dim),
         },
     })
     neo = Neo4jStore({

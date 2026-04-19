@@ -70,6 +70,32 @@ def live_fetch_collection(host: str, port: int, name: str) -> Dict[str, Any]:
         return json.loads(data)
 
 
+def _extract_qdrant_vector_spec(info: Dict[str, Any]) -> tuple[int | None, str | None]:
+    result = (info or {}).get("result") or {}
+    # v1.x: result.vectors is dict/list
+    vs = result.get("vectors")
+    if isinstance(vs, dict):
+        size = vs.get("size")
+        distance = vs.get("distance")
+        if size is not None:
+            try:
+                return int(size), str(distance or "")
+            except Exception:
+                return None, str(distance or "")
+    # v1.12+: result.config.params.vectors
+    params = result.get("config", {}).get("params", {})
+    vs2 = params.get("vectors")
+    if isinstance(vs2, dict):
+        size = vs2.get("size")
+        distance = vs2.get("distance")
+        if size is not None:
+            try:
+                return int(size), str(distance or "")
+            except Exception:
+                return None, str(distance or "")
+    return None, None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Verify Qdrant collections against config")
     ap.add_argument("--host", default=os.getenv("QDRANT_HOST", "127.0.0.1"))
@@ -94,13 +120,7 @@ def main() -> None:
         name = item["collection"]
         try:
             info = live_fetch_collection(args.host, int(args.port), name)
-            vspec = (((info or {}).get("result") or {}).get("vectors") or {})
-            # can be dict or list; handle dict with 'size' and 'distance'
-            size = None
-            dist = None
-            if isinstance(vspec, dict):
-                size = vspec.get("size")
-                dist = vspec.get("distance")
+            size, dist = _extract_qdrant_vector_spec(info)
             if size is None:
                 raise ValueError("Cannot parse vector spec from response")
             ok_dim = int(size) == int(item["expected_dim"])

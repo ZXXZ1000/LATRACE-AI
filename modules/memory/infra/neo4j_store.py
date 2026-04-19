@@ -33,7 +33,7 @@ class Neo4jStore:
     预期 settings：
     {
       "uri": "bolt://127.0.0.1:7687", "user": "neo4j", "password": "...",
-      "vector_index": {"enabled": True, "metric": "cosine", "dims": {"text": 1536}}
+      "vector_index": {"enabled": True, "metric": "cosine", "dims": {"text": 1024}}
     }
 
     TODO：实现连接、节点/关系 MERGE、向量属性/索引配置与 health。

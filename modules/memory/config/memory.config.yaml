@@ -14,9 +14,12 @@ memory:
       clip_image: memory_clip_image
       face: memory_face
     embedding:              # 嵌入提供商（上游未给向量时兜底）
-      provider: openrouter         # 使用 OpenRouter API
-      model: openai/text-embedding-3-small   # OpenAI 兼容模型
-      dim: 1536             # text-embedding-3-small 维度
+      # 使用本地 Jina v5-text-small（677M）模型。
+      # 注意：未下载到 local_path 时会回退到哈希占位；请先下载权重到指定目录。
+      provider: local
+      model: jinaai/jina-embeddings-v5-text-small
+      local_path: modules/memorization_agent/ops/models/jina-embeddings-v5-text-small
+      dim: 1024
       normalize: true       # L2 归一化
       batch_size: 128       # 文本嵌入批大小（大批量实验）
       embed_concurrency: 30  # 文本嵌入批并发（B 方案）
@@ -99,12 +102,12 @@ memory:
   llm:
     # 知识抽取 LLM（用于 TKG 知识抽取）
     extract:
-      provider: openrouter
-      model: google/gemini-2.5-flash
+      provider: openai_compat
+      model: MiniMax-M2.7
     # QA 回答生成 LLM
     qa:
-      provider: dashscope
-      model: qwen-plus
+      provider: openai_compat
+      model: MiniMax-M2.7
     # Judge 评测 LLM
     judge:
       provider: openrouter

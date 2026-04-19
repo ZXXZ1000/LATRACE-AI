@@ -129,3 +129,51 @@ def test_resolve_chat_target_does_not_cross_fallback_other_provider_models(monke
     target = resolve_openai_compatible_chat_target(kind="agentic_router")
 
     assert target is None
+
+
+def test_resolve_chat_target_normalizes_open_router_alias(monkeypatch):
+    monkeypatch.setattr(
+        cfgmod,
+        "load_memory_config",
+        lambda: {
+            "memory": {
+                "llm": {
+                    "agentic_router": {"provider": "open_router", "model": "google/gemini-2.5-flash-lite"},
+                }
+            }
+        },
+    )
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-openrouter")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+
+    target = resolve_openai_compatible_chat_target(kind="agentic_router")
+
+    assert target is not None
+    assert target["provider"] == "openrouter"
+    assert target["api_key"] == "sk-openrouter"
+    assert target["base_url"] == "https://openrouter.ai/api/v1"
+
+
+def test_resolve_chat_target_openai_compat_accepts_compat_env_aliases(monkeypatch):
+    monkeypatch.setattr(
+        cfgmod,
+        "load_memory_config",
+        lambda: {
+            "memory": {
+                "llm": {
+                    "agentic_router": {"provider": "openai_compat", "model": "MiniMax-M2.7"},
+                }
+            }
+        },
+    )
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENAI_COMPAT_API_KEY", "sk-openaicompat")
+    monkeypatch.setenv("OPENAI_COMPAT_API_BASE", "https://api.minimaxi.com/v1")
+
+    target = resolve_openai_compatible_chat_target(kind="agentic_router")
+
+    assert target is not None
+    assert target["provider"] == "openai_compat"
+    assert target["api_key"] == "sk-openaicompat"
+    assert target["base_url"] == "https://api.minimaxi.com/v1"

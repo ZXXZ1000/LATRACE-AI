@@ -22,8 +22,8 @@ def test_qdrant_verify_plan_from_config():
     assert kinds == {"text", "image", "audio"}
     # Verify default names and dims as in config
     by_name = {p["collection"]: p for p in plan}
-    # text: OpenAI text-embedding-3-small (dim=1536) - updated to match current config
-    assert "memory_text" in by_name and by_name["memory_text"]["expected_dim"] in (1536,)
+    # text: default embedding model now uses local Jina v5-text-small (1024 dims)
+    assert "memory_text" in by_name and by_name["memory_text"]["expected_dim"] == 1024
     # image/clip default 512
     assert "memory_image" in by_name and by_name["memory_image"]["expected_dim"] in (512,)
     # audio dim aligned to ERes2NetV2: 192

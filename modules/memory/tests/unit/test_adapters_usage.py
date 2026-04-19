@@ -194,6 +194,44 @@ def test_build_llm_from_config_openai_compat_sets_custom_provider(monkeypatch):
     assert captured["custom_llm_provider"] == "openai"
 
 
+def test_build_llm_from_config_openai_compat_accepts_compat_env_aliases(monkeypatch):
+    from modules.memory.application import config as cfgmod
+    from modules.memory.application import llm_adapter as ladapter
+
+    captured = {}
+
+    monkeypatch.setattr(
+        cfgmod,
+        "load_memory_config",
+        lambda: {"memory": {"llm": {"extract": {"provider": "openai_compat", "model": "MiniMax-M2.7"}}}},
+    )
+    monkeypatch.setattr(cfgmod, "get_llm_selection", lambda _cfg, kind: {"provider": "openai_compat", "model": "MiniMax-M2.7"})
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_COMPAT_API_BASE", "https://api.minimaxi.com/v1")
+    monkeypatch.setenv("OPENAI_COMPAT_API_KEY", "sk-compat")
+
+    def _fake_litellm_adapter(*, model, api_base=None, api_key=None, custom_llm_provider=None):
+        captured.update(
+            {
+                "model": model,
+                "api_base": api_base,
+                "api_key": api_key,
+                "custom_llm_provider": custom_llm_provider,
+            }
+        )
+        return LLMAdapter(lambda *_args, **_kwargs: "{}")
+
+    monkeypatch.setattr(ladapter, "_litellm_adapter", _fake_litellm_adapter)
+
+    adapter = build_llm_from_config("extract")
+    assert adapter is not None
+    assert captured["model"] == "MiniMax-M2.7"
+    assert captured["api_base"] == "https://api.minimaxi.com/v1"
+    assert captured["api_key"] == "sk-compat"
+    assert captured["custom_llm_provider"] == "openai"
+
+
 def test_build_llm_from_env_openai_compat_sets_custom_provider(monkeypatch):
     from modules.memory.application import llm_adapter as ladapter
 

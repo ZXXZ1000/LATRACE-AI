@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, Dict
 
 from modules.memory.application.service import MemoryService
+from modules.memory.application.config import load_memory_config
 from modules.memory.infra.inmem_vector_store import InMemVectorStore
 from modules.memory.infra.inmem_graph_store import InMemGraphStore
 from modules.memory.infra.audit_store import AuditStore
@@ -14,15 +15,21 @@ from modules.memory.application.metrics import as_prometheus_text
 def test_write_truncates_oversized_text_vector_and_records_metrics():
     async def _run():
         svc = MemoryService(InMemVectorStore(), InMemGraphStore(), AuditStore())
-        # expected dim (from config) is 1536 (OpenAI text-embedding-3-small);
+        exp_text_dim = (
+            load_memory_config()
+            .get("memory", {})
+            .get("vector_store", {})
+            .get("embedding", {})
+            .get("dim", 1536)
+        )
         # create a longer vector to test truncation
         vec = [0.1] * 2000
         e = MemoryEntry(kind="semantic", modality="text", contents=["喜欢 奶酪 披萨"], vectors={"text": vec}, metadata={"source": "test"})
         await svc.write([e])
-        # verify stored entry vector length was truncated to 1536
+        # verify stored entry vector length was truncated to configured text dim
         dump = svc.vectors.dump()  # type: ignore[attr-defined]
         stored = next(iter(dump.values()))
-        assert len(stored.vectors["text"]) == 1536  # type: ignore[index]
+        assert len(stored.vectors["text"]) == exp_text_dim  # type: ignore[index]
         prom = as_prometheus_text()
         # histogram for vector size should be present
         assert "memory_vector_size_per_entry_bucket" in prom
@@ -35,7 +42,7 @@ def test_write_truncates_oversized_text_vector_and_records_metrics():
 def test_write_raises_on_too_small_vector_dimension():
     async def _run():
         svc = MemoryService(InMemVectorStore(), InMemGraphStore(), AuditStore())
-        # create a too-small vector (e.g., 100 < 1536)
+        # create a too-small vector so service rejects undersized text embeddings
         vec = [0.2] * 100
         e = MemoryEntry(kind="semantic", modality="text", contents=["我 喜欢 披萨"], vectors={"text": vec}, metadata={"source": "test"})
         try:

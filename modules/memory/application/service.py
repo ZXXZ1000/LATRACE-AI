@@ -2779,18 +2779,32 @@ class MemoryService:
     _health_llm_cache_time: float = 0.0
 
     async def _check_llm_provider_health(self) -> Dict[str, Any]:
-        """Check LLM provider (OpenRouter) connectivity, auth, and balance.
-        
-        Returns a structured status dict with auth/balance details and specific error codes.
-        Uses caching to avoid hitting OpenRouter API too frequently.
+        """Check configured LLM provider auth status (main provider aware).
+
+        For OpenRouter we keep existing auth + credits checks.
+        For other providers we only check required credentials and treat balance as unavailable.
         """
         import httpx
         import time as _time
-        
-        provider = "openrouter"
-        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
-        min_usd = float(os.getenv("MEMORY_HEALTH_OPENROUTER_MIN_USD", "1.0"))
+
+        def _normalize_provider(raw: Optional[str]) -> str:
+            provider_name = str(raw or "").strip().lower().replace("-", "_")
+            if provider_name == "open_router":
+                return "openrouter"
+            if provider_name in {"openai_compatible", "openai_compat"}:
+                return "openai_compat"
+            return provider_name
+
+        def _first_env(*names: str) -> str:
+            for name in names:
+                value = str(os.getenv(name, "") or "").strip()
+                if value:
+                    return value
+            return ""
+
+        provider = _normalize_provider(os.getenv("LLM_PROVIDER", "openrouter"))
+        if not provider:
+            provider = "openrouter"
         cache_ttl = float(os.getenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "60"))
         
         result: Dict[str, Any] = {
@@ -2801,23 +2815,106 @@ class MemoryService:
             "latency_ms": None,
         }
         
-        # Check if API key is configured
-        if not api_key:
-            result["auth"]["error"] = "API_KEY_MISSING"
-            return result
-        
         # Check cache
         now = _time.time()
         if (
             self._health_llm_cache is not None
+            and self._health_llm_cache.get("provider") == provider
             and (now - self._health_llm_cache_time) < cache_ttl
         ):
             return dict(self._health_llm_cache)
-        
-        # Make actual API calls
-        headers = {"Authorization": f"Bearer {api_key}"}
+
+        def _fail(message: str, code: str, detail: Optional[str] = None) -> Dict[str, Any]:
+            result["auth"]["error"] = code
+            if detail:
+                result["auth"]["detail"] = detail
+            self._health_llm_cache = dict(result)
+            self._health_llm_cache_time = now
+            return result
+
+        def _normalize_base(raw: Optional[str], default: Optional[str] = None) -> Optional[str]:
+            base = (raw or default or "").strip().rstrip("/")
+            if not base:
+                return None
+            return base
+
+        # Resolve credentials according to main provider config.
+        if provider == "openrouter":
+            api_key = _first_env("OPENROUTER_API_KEY")
+            base_url = _normalize_base(_first_env("OPENROUTER_BASE_URL"), "https://openrouter.ai/api/v1")
+            if not api_key:
+                return _fail("api key missing", "API_KEY_MISSING")
+            if not base_url:
+                return _fail("base url missing", "BASE_URL_MISSING")
+            min_usd = float(os.getenv("MEMORY_HEALTH_OPENROUTER_MIN_USD", "1.0"))
+        elif provider == "openai_compat":
+            api_key = _first_env("LLM_API_KEY", "OPENAI_COMPAT_API_KEY")
+            base_url = _normalize_base(
+                _first_env(
+                    "LLM_BASE_URL",
+                    "OPENAI_COMPAT_API_BASE",
+                    "OPENAI_API_BASE",
+                    "OPENAI_BASE_URL",
+                )
+            )
+            if not api_key:
+                return _fail("api key missing", "API_KEY_MISSING")
+            if not base_url:
+                return _fail("base url missing", "BASE_URL_MISSING")
+        elif provider == "openai":
+            api_key = _first_env("OPENAI_API_KEY")
+            base_url = _normalize_base(_first_env("OPENAI_BASE_URL", "OPENAI_API_BASE"))
+            if not api_key:
+                return _fail("api key missing", "API_KEY_MISSING")
+        elif provider in {"qwen", "dashscope", "aliyun"}:
+            api_key = _first_env("DASHSCOPE_API_KEY", "QWEN_API_KEY")
+            base_url = _normalize_base(_first_env("DASHSCOPE_BASE_URL"), "https://dashscope.aliyuncs.com/compatible-mode/v1")
+            if not api_key:
+                return _fail("api key missing", "API_KEY_MISSING")
+        elif provider in {"glm", "zhipuai"}:
+            api_key = _first_env("ZHIPUAI_API_KEY", "GLM_API_KEY")
+            base_url = _normalize_base(_first_env("GLM_API_BASE"), "https://open.bigmodel.cn/api/coding/paas/v4")
+            if not api_key:
+                return _fail("api key missing", "API_KEY_MISSING")
+        elif provider in {"deepseek"}:
+            api_key = _first_env("DEEPSEEK_API_KEY")
+            base_url = _normalize_base(_first_env("DEEPSEEK_API_BASE"), "https://api.deepseek.com/v1")
+            if not api_key:
+                return _fail("api key missing", "API_KEY_MISSING")
+        elif provider in {"moonshot", "kimi"}:
+            api_key = _first_env("MOONSHOT_API_KEY")
+            base_url = _normalize_base(_first_env("MOONSHOT_API_BASE"), "https://api.moonshot.cn/v1")
+            if not api_key:
+                return _fail("api key missing", "API_KEY_MISSING")
+        elif provider in {"gemini", "google"}:
+            api_key = _first_env("GOOGLE_API_KEY", "GEMINI_API_KEY")
+            base_url = _normalize_base(os.getenv("GEMINI_BASE_URL"), None)
+            if not api_key:
+                return _fail("api key missing", "API_KEY_MISSING")
+        else:
+            # Unknown provider: treat as a custom OpenAI-compatible endpoint.
+            api_key = _first_env("LLM_API_KEY", "OPENAI_COMPAT_API_KEY")
+            base_url = _normalize_base(
+                _first_env(
+                    "LLM_BASE_URL",
+                    "OPENAI_COMPAT_API_BASE",
+                    "OPENAI_API_BASE",
+                    "OPENAI_BASE_URL",
+                )
+            )
+            if not api_key and not base_url:
+                return _fail("custom credentials missing", "CREDENTIALS_MISSING")
+
+        # For non-OpenRouter providers, stop at auth-credential checks.
+        if provider != "openrouter":
+            result["auth"]["status"] = "ok"
+            result["status"] = "ok"
+            return result
+
         timeout = httpx.Timeout(10.0, connect=5.0)
         
+        # OpenRouter: make actual API calls to check auth and remaining credits.
+        headers = {"Authorization": f"Bearer {api_key}"}
         try:
             start = _time.perf_counter()
             async with httpx.AsyncClient(timeout=timeout) as client:

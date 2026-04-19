@@ -44,9 +44,9 @@ memory:
       enabled: true
       metric: cosine
       dims:
-        text: 1536
+        text: 1024
         image: 512
-        audio: 256
+        audio: 192
 ```
 
 ## 审计（SQLite）
@@ -59,4 +59,3 @@ memory:
 ```
 
 > 生产建议迁移至 SQLite/PG 持久化，并开启定期备份。
-
