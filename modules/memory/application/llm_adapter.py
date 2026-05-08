@@ -24,6 +24,11 @@ import contextvars
 import os
 import json
 from modules.memory.contracts.usage_models import LLMUsage
+from modules.memory.application.provider_resolver import (
+    normalize_provider_name as _normalize_provider_name,
+    first_env_value as _first_env_value,
+    norm_opt_str as _norm_opt_str,
+)
 
 # Be robust about env loading: load both repo root .env and module-specific .env
 try:
@@ -1197,29 +1202,8 @@ def build_llm_from_byok(
     return _litellm_adapter(model=mdl, api_base=base_url, api_key=key)
 
 
-def _norm_opt_str(value: Optional[str]) -> Optional[str]:
-    raw = str(value or "").strip()
-    return raw or None
-
-
-def _normalize_provider_name(value: Optional[str]) -> str:
-    raw = _norm_opt_str(value)
-    if not raw:
-        return ""
-    provider = raw.lower().replace("-", "_")
-    if provider == "open_router":
-        return "openrouter"
-    if provider in {"openai_compatible", "openai_compat"}:
-        return "openai_compat"
-    return provider
-
-
-def _first_env_value(*names: str) -> Optional[str]:
-    for name in names:
-        value = _norm_opt_str(os.getenv(name))
-        if value:
-            return value
-    return None
+# _norm_opt_str, _normalize_provider_name, _first_env_value are imported
+# from modules.memory.application.provider_resolver at the top of this file.
 
 
 def _normalize_sglang_base_url(base_url: Optional[str]) -> Optional[str]:
