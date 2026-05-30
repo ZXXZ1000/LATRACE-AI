@@ -13,9 +13,11 @@
       face: memory_face
     embedding:
       provider: local
-      model: jina-embeddings-v2-base-zh
-      local_path: modules/memorization_agent/ops/models/jina-embeddings-v2-base-zh
-      dim: 768
+      # 使用本地 Jina v5-text-small（677M）模型。
+      # 未下载到 local_path 时会回退到哈希占位。
+      model: jinaai/jina-embeddings-v5-text-small
+      local_path: modules/memorization_agent/ops/models/jina-embeddings-v5-text-small
+      dim: 1024
       normalize: true
       batch_size: 128
       embed_concurrency: 30
@@ -66,14 +68,14 @@
 
   llm:
     extract:
-      provider: openrouter
-      model: google/gemini-2.5-flash
+      provider: openai_compat
+      model: MiniMax-M2.7
     text:
       provider: glm
       model: glm-4.6
     qa:
-      provider: dashscope
-      model: qwen-plus
+      provider: openai_compat
+      model: MiniMax-M2.7
     judge:
       provider: openrouter
       model: openai/gpt-4o-mini

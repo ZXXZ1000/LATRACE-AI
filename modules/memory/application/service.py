@@ -2779,20 +2779,27 @@ class MemoryService:
     _health_llm_cache_time: float = 0.0
 
     async def _check_llm_provider_health(self) -> Dict[str, Any]:
-        """Check LLM provider (OpenRouter) connectivity, auth, and balance.
-        
-        Returns a structured status dict with auth/balance details and specific error codes.
-        Uses caching to avoid hitting OpenRouter API too frequently.
+        """Check configured LLM provider auth status (main provider aware).
+
+        For OpenRouter we keep existing auth + credits checks.
+        For other providers we only check required credentials and treat balance as unavailable.
+
+        Credential resolution is delegated to ``provider_resolver`` to ensure
+        consistent env-var priority across health checks and LLM adapter construction.
         """
         import httpx
         import time as _time
-        
-        provider = "openrouter"
-        api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1").rstrip("/")
-        min_usd = float(os.getenv("MEMORY_HEALTH_OPENROUTER_MIN_USD", "1.0"))
+        from modules.memory.application.provider_resolver import (
+            normalize_provider_name,
+            resolve_provider_credentials,
+            is_key_required,
+        )
+
+        provider = normalize_provider_name(os.getenv("LLM_PROVIDER", "openrouter"))
+        if not provider:
+            provider = "openrouter"
         cache_ttl = float(os.getenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "60"))
-        
+
         result: Dict[str, Any] = {
             "status": "fail",
             "provider": provider,
@@ -2800,24 +2807,50 @@ class MemoryService:
             "balance": None,
             "latency_ms": None,
         }
-        
-        # Check if API key is configured
-        if not api_key:
-            result["auth"]["error"] = "API_KEY_MISSING"
-            return result
-        
+
         # Check cache
         now = _time.time()
         if (
             self._health_llm_cache is not None
+            and self._health_llm_cache.get("provider") == provider
             and (now - self._health_llm_cache_time) < cache_ttl
         ):
             return dict(self._health_llm_cache)
-        
-        # Make actual API calls
-        headers = {"Authorization": f"Bearer {api_key}"}
+
+        def _fail(code: str, detail: Optional[str] = None) -> Dict[str, Any]:
+            result["auth"]["error"] = code
+            if detail:
+                result["auth"]["detail"] = detail
+            self._health_llm_cache = dict(result)
+            self._health_llm_cache_time = now
+            return result
+
+        # Resolve credentials via shared provider_resolver (single source of truth).
+        api_key, base_url = resolve_provider_credentials(provider)
+
+        # Validate required credentials
+        if is_key_required(provider) and not api_key:
+            return _fail("API_KEY_MISSING")
+        if provider == "openai_compat" and not base_url:
+            return _fail("BASE_URL_MISSING")
+        if not api_key and not base_url:
+            return _fail("CREDENTIALS_MISSING")
+
+        # For non-OpenRouter providers, stop at auth-credential checks.
+        if provider != "openrouter":
+            result["auth"]["status"] = "ok"
+            result["status"] = "ok"
+            self._health_llm_cache = dict(result)
+            self._health_llm_cache_time = now
+            return result
+
+        # OpenRouter-specific: auth + credits check
+        min_usd = float(os.getenv("MEMORY_HEALTH_OPENROUTER_MIN_USD", "1.0"))
+
         timeout = httpx.Timeout(10.0, connect=5.0)
         
+        # OpenRouter: make actual API calls to check auth and remaining credits.
+        headers = {"Authorization": f"Bearer {api_key}"}
         try:
             start = _time.perf_counter()
             async with httpx.AsyncClient(timeout=timeout) as client:

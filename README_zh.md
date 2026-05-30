@@ -1,12 +1,15 @@
 <div align="center">
 
-<img src="./assets/logo.png" alt="LATRACE Logo" width="600">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/latrace-lockup-dark.png">
+  <img src="./assets/latrace-lockup-light.png" alt="LATRACE Memory Infrastructure" width="680">
+</picture>
 
 # LATRACE
 
-**Long-term Adaptive Trace for AI Context Engine**
+**Memory Infrastructure for AI Agents**
 
-*赋予你的 AI 梦寐以求的记忆能力。* 🌌
+*Tracing the latent. Anchoring the real.*
 
 Read this in [English](README.md) | [中文](README_zh.md)
 

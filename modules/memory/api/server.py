@@ -279,8 +279,12 @@ def _as_bool(val: Any, default: bool) -> bool:
 
 def _resolve_env_like_str(val: Any, default: str) -> str:
     try:
+        if val is None:
+            return default
         s = str(val).strip()
-        if not s or s.startswith("${"):
+        if not s or s.lower() in {"none", "null", "~"}:
+            return default
+        if s.startswith("${") and s.endswith("}"):
             return default
         return s
     except Exception:
@@ -292,7 +296,6 @@ def _normalize_neo4j_uri(raw_uri: str, *, default_host: str = "127.0.0.1", defau
     Normalize Neo4j URI for single-node deployments.
 
     - Force scheme to bolt://
-    - Convert localhost/::1 to 127.0.0.1
     - Default or override port to 7687 (rewriting 7474)
     """
     info: Dict[str, str] = {"input": raw_uri or ""}
@@ -305,11 +308,10 @@ def _normalize_neo4j_uri(raw_uri: str, *, default_host: str = "127.0.0.1", defau
         if "://" not in uri:
             uri = f"bolt://{uri}"
         parsed = urlparse(uri)
-        parsed.scheme.lower() if parsed.scheme else "bolt"
+        # Keep the original hostname to avoid transport-level policy differences
+        # between localhost/127.0.0.1 and avoid authentication lockout side effects.
         host = parsed.hostname or default_host
         port = parsed.port or default_port
-        if host in ("localhost", "::1"):
-            host = default_host
         if port in (None, 0, 7474):
             port = default_port
         info.update({"scheme": "bolt", "host": host, "port": str(port)})

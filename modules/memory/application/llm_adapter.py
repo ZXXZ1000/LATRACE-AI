@@ -24,6 +24,11 @@ import contextvars
 import os
 import json
 from modules.memory.contracts.usage_models import LLMUsage
+from modules.memory.application.provider_resolver import (
+    normalize_provider_name as _normalize_provider_name,
+    first_env_value as _first_env_value,
+    norm_opt_str as _norm_opt_str,
+)
 
 # Be robust about env loading: load both repo root .env and module-specific .env
 try:
@@ -941,9 +946,9 @@ def build_llm_from_env() -> Optional[LLMAdapter]:
             return adapter
 
     # Custom OpenAI-compatible base
-    base = os.getenv("LLM_BASE_URL")
-    key = os.getenv("LLM_API_KEY")
-    model = os.getenv("LLM_MODEL")
+    base = _first_env_value("LLM_BASE_URL", "OPENAI_COMPAT_API_BASE")
+    key = _first_env_value("LLM_API_KEY", "OPENAI_COMPAT_API_KEY")
+    model = _first_env_value("LLM_MODEL")
     if base and key and model:
         return _litellm_adapter(
             model=model,
@@ -976,7 +981,11 @@ def build_llm_from_env() -> Optional[LLMAdapter]:
     # OpenAI
     if os.getenv("OPENAI_API_KEY"):
         m = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-        return _litellm_adapter(model=m)
+        return _litellm_adapter(
+            model=m,
+            api_base=_first_env_value("OPENAI_BASE_URL", "OPENAI_API_BASE"),
+            api_key=os.getenv("OPENAI_API_KEY"),
+        )
     # DeepSeek
     if os.getenv("DEEPSEEK_API_KEY"):
         m = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
@@ -1022,7 +1031,7 @@ def build_llm_from_config(kind: str = "text") -> Optional[LLMAdapter]:
         return None
     cfg = load_memory_config()
     sel = get_llm_selection(cfg, kind)
-    provider = (sel.get("provider") or "").lower()
+    provider = _normalize_provider_name(sel.get("provider"))
     model = sel.get("model") or ""
     if not model:
         return build_llm_from_env()
@@ -1067,9 +1076,14 @@ def build_llm_from_config(kind: str = "text") -> Optional[LLMAdapter]:
         # reuse _litellm_adapter and apply mapping based on strategy
         base = None
         key = None
-        if provider == "openai_compat" and os.getenv("LLM_BASE_URL") and os.getenv("LLM_API_KEY"):
-            base = os.getenv("LLM_BASE_URL")
-            key = os.getenv("LLM_API_KEY")
+        if provider == "openai_compat":
+            base = _first_env_value(
+                "LLM_BASE_URL",
+                "OPENAI_COMPAT_API_BASE",
+                "OPENAI_API_BASE",
+                "OPENAI_BASE_URL",
+            )
+            key = _first_env_value("LLM_API_KEY", "OPENAI_COMPAT_API_KEY")
         elif provider == "glm":
             # Prefer direct HTTP adapter for GLM to avoid provider autodetection issues in litellm
             key = os.getenv("ZHIPUAI_API_KEY") or os.getenv("GLM_API_KEY")
@@ -1132,7 +1146,7 @@ def build_llm_from_byok(
     api_key: str,
     base_url: Optional[str] = None,
 ) -> Optional[LLMAdapter]:
-    prov = str(provider or "").strip().lower()
+    prov = _normalize_provider_name(provider)
     mdl = str(model or "").strip()
     key = str(api_key or "").strip()
     if not prov or not mdl or not key:
@@ -1176,7 +1190,7 @@ def build_llm_from_byok(
             api_key=key,
         )
 
-    if prov in {"openai", "openai_compat", "openai-compatible", "openai_compatible"}:
+    if prov in {"openai", "openai_compat"}:
         return _litellm_adapter(
             model=mdl,
             api_base=base_url,
@@ -1188,9 +1202,8 @@ def build_llm_from_byok(
     return _litellm_adapter(model=mdl, api_base=base_url, api_key=key)
 
 
-def _norm_opt_str(value: Optional[str]) -> Optional[str]:
-    raw = str(value or "").strip()
-    return raw or None
+# _norm_opt_str, _normalize_provider_name, _first_env_value are imported
+# from modules.memory.application.provider_resolver at the top of this file.
 
 
 def _normalize_sglang_base_url(base_url: Optional[str]) -> Optional[str]:
@@ -1229,23 +1242,20 @@ def resolve_openai_compatible_chat_target(
     selected = get_llm_selection(cfg, kind)
     fallback = get_llm_selection(cfg, "text")
 
-    provider = (
+    provider = _normalize_provider_name(
         _norm_opt_str(provider_override)
         or _norm_opt_str(selected.get("provider"))
         or _norm_opt_str(fallback.get("provider"))
         or _norm_opt_str(os.getenv("LLM_PROVIDER"))
         or "openai"
-    ).lower()
+    )
     model = (
         _norm_opt_str(model_override)
         or _norm_opt_str(selected.get("model"))
         or _norm_opt_str(fallback.get("model"))
-        or _norm_opt_str(os.getenv("LLM_MODEL"))
     )
     if not model:
-        if provider == "openai":
-            model = _norm_opt_str(os.getenv("OPENAI_MODEL"))
-        elif provider == "openrouter":
+        if provider == "openrouter":
             model = _norm_opt_str(os.getenv("OPENROUTER_MODEL"))
         elif provider in {"qwen", "dashscope", "aliyun"}:
             model = _norm_opt_str(os.getenv("QWEN_MODEL"))
@@ -1257,6 +1267,10 @@ def resolve_openai_compatible_chat_target(
             model = _norm_opt_str(os.getenv("MOONSHOT_MODEL"))
         elif provider in {"gemini", "google"}:
             model = _norm_opt_str(os.getenv("GEMINI_MODEL"))
+        elif provider == "openai":
+            model = _norm_opt_str(os.getenv("OPENAI_MODEL"))
+        if not model:
+            model = _norm_opt_str(os.getenv("LLM_MODEL"))
     if not model:
         return None
 
@@ -1265,8 +1279,8 @@ def resolve_openai_compatible_chat_target(
     base_url: Optional[str] = None
 
     if provider == "openrouter":
-        api_key = str(os.getenv("OPENROUTER_API_KEY") or "").strip()
-        base_url = base_override or str(os.getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").strip()
+        api_key = str(_first_env_value("OPENROUTER_API_KEY") or "").strip()
+        base_url = base_override or str(_first_env_value("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").strip()
         if model.startswith("openrouter/"):
             model = model[len("openrouter/") :]
     elif provider in {"qwen", "dashscope", "aliyun"}:
@@ -1287,20 +1301,30 @@ def resolve_openai_compatible_chat_target(
     elif provider in {"sglang"}:
         api_key = str(os.getenv("SGLANG_API_KEY") or os.getenv("LLM_API_KEY") or "").strip()
         base_url = _normalize_sglang_base_url(base_override or os.getenv("SGLANG_BASE_URL") or "http://localhost:30000")
-    elif provider in {"openai_compat", "openai-compatible", "openai_compatible"}:
-        api_key = str(os.getenv("LLM_API_KEY") or "").strip()
-        base_url = base_override or _norm_opt_str(os.getenv("LLM_BASE_URL"))
+    elif provider == "openai_compat":
+        api_key = str(_first_env_value("LLM_API_KEY", "OPENAI_COMPAT_API_KEY") or "").strip()
+        base_url = base_override or _first_env_value(
+            "LLM_BASE_URL",
+            "OPENAI_COMPAT_API_BASE",
+            "OPENAI_API_BASE",
+            "OPENAI_BASE_URL",
+        )
     elif provider in {"gemini", "google"}:
         # Gemini native SDK path is not OpenAI-compatible by default.
         api_key = str(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
         base_url = base_override or _norm_opt_str(os.getenv("GEMINI_BASE_URL"))
     elif provider in {"openai", ""}:
-        api_key = str(os.getenv("OPENAI_API_KEY") or "").strip()
-        base_url = base_override
+        api_key = str(_first_env_value("OPENAI_API_KEY") or "").strip()
+        base_url = base_override or _first_env_value("OPENAI_BASE_URL", "OPENAI_API_BASE")
     else:
         # Unknown provider: treat as OpenAI-compatible custom endpoint.
-        api_key = str(os.getenv("LLM_API_KEY") or "").strip()
-        base_url = base_override or _norm_opt_str(os.getenv("LLM_BASE_URL"))
+        api_key = str(_first_env_value("LLM_API_KEY", "OPENAI_COMPAT_API_KEY") or "").strip()
+        base_url = base_override or _first_env_value(
+            "LLM_BASE_URL",
+            "OPENAI_COMPAT_API_BASE",
+            "OPENAI_API_BASE",
+            "OPENAI_BASE_URL",
+        )
 
     base_url = _norm_opt_str(base_url)
 
@@ -1319,7 +1343,7 @@ def resolve_openai_compatible_chat_target(
     }
     if key_required and not api_key:
         return None
-    if provider in {"openai_compat", "openai-compatible", "openai_compatible", "gemini", "google"} and not base_url:
+    if provider in {"openai_compat", "gemini", "google"} and not base_url:
         return None
     if provider in {"openai", ""} and not api_key and not base_url:
         return None

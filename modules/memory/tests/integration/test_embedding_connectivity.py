@@ -40,8 +40,10 @@ def _has_provider_credentials(provider: str) -> bool:
     p = (provider or "").strip().lower()
     if p in {"qwen", "dashscope", "aliyun"}:
         return any(os.getenv(k) for k in ("DASHSCOPE_API_KEY", "EMBEDDING_API_KEY", "QWEN_API_KEY"))
-    if p in {"openai", "openai_compat", "openai-compatible"}:
-        return any(os.getenv(k) for k in ("OPENAI_API_KEY", "OPENAI_COMPAT_API_KEY"))
+    if p in {"openai"}:
+        return any(os.getenv(k) for k in ("OPENAI_API_KEY",))
+    if p in {"openai_compat", "openai-compatible", "openai_compatible"}:
+        return any(os.getenv(k) for k in ("LLM_API_KEY", "OPENAI_COMPAT_API_KEY"))
     if p in {"openrouter", "open_router"}:
         return any(os.getenv(k) for k in ("OPENROUTER_EMBEDDING_API_KEY", "OPENROUTER_API_KEY"))
     if p in {"gemini"}:
@@ -57,6 +59,15 @@ def test_has_provider_credentials_accepts_openrouter(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-openrouter")
     assert _has_provider_credentials("openrouter") is True
+
+
+def test_has_provider_credentials_accepts_openai_compat_generic_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_COMPAT_API_KEY", raising=False)
+    assert _has_provider_credentials("openai_compat") is False
+
+    monkeypatch.setenv("LLM_API_KEY", "sk-openaicompat")
+    assert _has_provider_credentials("openai_compat") is True
 
 
 def test_embedding_provider_connectivity_or_fallback():

@@ -952,3 +952,54 @@
 
 - 目标符合性评估：
   - 评审提及的高优先级工程风险均已修复并经回归验证通过。
+
+## 027. Provider 健康检查与 1024 维度收敛修复（已完成）
+
+- 背景：
+  - 本轮评审确认有三类稳定性风险：
+    - `/health` 的 provider 判活仍有别名和 env 口径不一致问题
+    - `openai` 分支在只有 base_url、没有 api key 时会误报健康
+    - 文档/示例脚本仍残留 `1536` 旧维度，和当前 Jina v5 `1024` 主配置不一致
+
+- 修复内容：
+  - `application/service.py`
+    - `LLM_PROVIDER` 增加 provider 归一化：`open_router -> openrouter`，`openai-compatible/openai_compatible -> openai_compat`
+    - `/health` 的 `openai_compat` 支持兼容读取：
+      - `LLM_API_KEY` / `OPENAI_COMPAT_API_KEY`
+      - `LLM_BASE_URL` / `OPENAI_COMPAT_API_BASE` / `OPENAI_API_BASE` / `OPENAI_BASE_URL`
+    - `openai` 健康检查改为强制要求 `OPENAI_API_KEY`，不再因为单独提供 base_url 而误报健康
+  - `application/llm_adapter.py`
+    - provider 解析与 `/health` 对齐，统一别名归一化
+    - `resolve_openai_compatible_chat_target` 与 `build_llm_from_config` 支持 `OPENAI_COMPAT_API_BASE/KEY` 兼容 env
+    - `openai` 目标解析补充 `OPENAI_BASE_URL/OPENAI_API_BASE`
+  - 维度收敛：
+    - `scripts/e2e_cycle9_demo.py` 改为直接读取主配置 embedding dim，避免脚本默认值漂移
+    - `infra/CONFIG.md`、`infra/neo4j_store.py` 示例维度更新为 `text=1024`、`audio=192`
+
+- 测试验证：
+  - 新增/增强回归：
+    - `test_health_readiness.py`
+      - `open_router` 别名走 OpenRouter 凭证
+      - `OPENAI_COMPAT_API_BASE/KEY` 可被 `/health` 正确识别
+      - `openai` 缺 key 即使有 base_url 也判失败
+    - `test_llm_adapter_chat_target.py`
+      - `open_router` 别名归一化
+      - `OPENAI_COMPAT_API_BASE/KEY` 兼容解析
+    - `test_adapters_usage.py`
+      - `build_llm_from_config` 支持 compat env 别名
+    - `test_embedding_connectivity.py`
+      - `openai_compat` 识别 `LLM_API_KEY`
+  - 针对性回归：
+    - `pytest modules/memory/tests/unit/test_health_readiness.py -q` -> `14 passed`
+    - `pytest modules/memory/tests/unit/test_llm_adapter_chat_target.py modules/memory/tests/unit/test_adapters_usage.py -q` -> `15 passed`
+    - `pytest modules/memory/tests/integration/test_embedding_connectivity.py modules/memory/tests/unit/test_admin_scripts.py modules/memory/tests/unit/test_vector_validation_and_metrics.py -q` -> `7 passed, 1 skipped`
+  - 全量回归：
+    - `pytest -q` -> `651 passed, 6 skipped`
+
+- 文档同步：
+  - 本轮未修改公共 API 响应 schema，只修正 provider 判活与兼容解析逻辑，因此未触发根级 `SDK使用说明.md` / `开发者API 说明文档.md` 变更
+  - 变更已记录到本 `PROCESS.md`，并同步修正基础设施配置示例文档
+
+- 目标符合性评估：
+  - 本轮改动未扩大公共接口面，主要收敛健康检查、兼容 env 和配置维度漂移问题。
+  - 全量测试通过，当前没有发现这批修复对整体可用性造成回归。

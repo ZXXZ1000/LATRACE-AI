@@ -59,6 +59,7 @@ async def test_health_check_includes_openrouter_and_disk_ok(monkeypatch, tmp_pat
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-1234")
     monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     monkeypatch.setenv("MEMORY_HEALTH_OPENROUTER_MIN_USD", "1.0")
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "0")
     monkeypatch.setenv("MEMORY_HEALTH_DISK_MIN_FREE_MB", "500")
     monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
@@ -74,11 +75,121 @@ async def test_health_check_includes_openrouter_and_disk_ok(monkeypatch, tmp_pat
 
 
 @pytest.mark.anyio
+async def test_health_check_openai_compat_ok_without_balance_checks(monkeypatch, tmp_path) -> None:
+    from modules.memory.application.service import MemoryService
+    from modules.memory.infra.audit_store import AuditStore
+
+    # Disk OK
+    import shutil
+    import os
+    from collections import namedtuple
+
+    Usage = namedtuple("Usage", ["total", "used", "free"])
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: Usage(1000, 100, 900 * 1024 * 1024))
+    monkeypatch.setattr(os, "access", lambda p, mode: True)
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compat")
+    monkeypatch.setenv("LLM_API_KEY", "sk-openaicompat")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.minimaxi.com/v1")
+    monkeypatch.setenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "0")
+    monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
+
+    svc = MemoryService(_OkStore(), _OkStore(), AuditStore({"sqlite_path": ":memory:"}))
+    h = await svc.health_check()
+    llm = h["dependencies"]["llm_provider"]
+    assert h["status"] == "ok"
+    assert llm["provider"] == "openai_compat"
+    assert llm["status"] == "ok"
+    assert llm["auth"]["status"] == "ok"
+    assert llm["balance"] is None
+
+
+@pytest.mark.anyio
+async def test_health_check_openai_compat_accepts_compat_env_aliases(monkeypatch, tmp_path) -> None:
+    from modules.memory.application.service import MemoryService
+    from modules.memory.infra.audit_store import AuditStore
+
+    import shutil
+    import os
+    from collections import namedtuple
+
+    Usage = namedtuple("Usage", ["total", "used", "free"])
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: Usage(1000, 100, 900 * 1024 * 1024))
+    monkeypatch.setattr(os, "access", lambda p, mode: True)
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compat")
+    monkeypatch.setenv("OPENAI_COMPAT_API_KEY", "sk-openaicompat")
+    monkeypatch.setenv("OPENAI_COMPAT_API_BASE", "https://api.minimaxi.com/v1")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    monkeypatch.setenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "0")
+    monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
+
+    svc = MemoryService(_OkStore(), _OkStore(), AuditStore({"sqlite_path": ":memory:"}))
+    h = await svc.health_check()
+    llm = h["dependencies"]["llm_provider"]
+    assert h["status"] == "ok"
+    assert llm["provider"] == "openai_compat"
+    assert llm["status"] == "ok"
+    assert llm["auth"]["status"] == "ok"
+    assert llm["balance"] is None
+
+
+@pytest.mark.anyio
+async def test_health_check_open_router_alias_uses_openrouter_credentials(monkeypatch, tmp_path) -> None:
+    from modules.memory.application.service import MemoryService
+    from modules.memory.infra.audit_store import AuditStore
+
+    import httpx
+    import shutil
+    import os
+    from collections import namedtuple
+
+    class _FakeAsyncClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._timeout = kwargs.get("timeout")
+
+        async def __aenter__(self) -> "_FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, exc_type, exc: BaseException, tb) -> None:  # type: ignore[override]
+            return None
+
+        async def get(self, url: str, headers: Optional[Dict[str, str]] = None):
+            if url.endswith("/auth/key"):
+                return _Resp(200, {"data": {"label": "test"}})
+            if url.endswith("/credits"):
+                return _Resp(200, {"data": {"total_credits": 4.0, "total_usage": 1.0}})
+            return _Resp(404, {})
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
+    Usage = namedtuple("Usage", ["total", "used", "free"])
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: Usage(1000, 100, 900 * 1024 * 1024))
+    monkeypatch.setattr(os, "access", lambda p, mode: True)
+
+    monkeypatch.setenv("LLM_PROVIDER", "open_router")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-openrouter")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "0")
+    monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
+
+    svc = MemoryService(_OkStore(), _OkStore(), AuditStore({"sqlite_path": ":memory:"}))
+    h = await svc.health_check()
+    llm = h["dependencies"]["llm_provider"]
+    assert h["status"] == "ok"
+    assert llm["provider"] == "openrouter"
+    assert llm["status"] == "ok"
+    assert llm["auth"]["status"] == "ok"
+    assert llm["balance"]["status"] == "ok"
+
+
+@pytest.mark.anyio
 async def test_health_check_fails_when_openrouter_key_missing(monkeypatch, tmp_path) -> None:
     from modules.memory.application.service import MemoryService
     from modules.memory.infra.audit_store import AuditStore
 
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "0")
     monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
 
@@ -90,6 +201,59 @@ async def test_health_check_fails_when_openrouter_key_missing(monkeypatch, tmp_p
     Usage = namedtuple("Usage", ["total", "used", "free"])
     monkeypatch.setattr(shutil, "disk_usage", lambda p: Usage(1000, 100, 900 * 1024 * 1024))
     monkeypatch.setattr(os, "access", lambda p, mode: True)
+
+    svc = MemoryService(_OkStore(), _OkStore(), AuditStore({"sqlite_path": ":memory:"}))
+    h = await svc.health_check()
+    assert h["status"] == "fail"
+    assert h["dependencies"]["llm_provider"]["status"] == "fail"
+    assert h["dependencies"]["llm_provider"]["auth"]["error"] == "API_KEY_MISSING"
+
+
+@pytest.mark.anyio
+async def test_health_check_fails_when_openai_compat_key_missing(monkeypatch, tmp_path) -> None:
+    from modules.memory.application.service import MemoryService
+    from modules.memory.infra.audit_store import AuditStore
+
+    import shutil
+    import os
+    from collections import namedtuple
+
+    Usage = namedtuple("Usage", ["total", "used", "free"])
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: Usage(1000, 100, 900 * 1024 * 1024))
+    monkeypatch.setattr(os, "access", lambda p, mode: True)
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai_compat")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.minimaxi.com/v1")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_COMPAT_API_KEY", raising=False)
+    monkeypatch.setenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "0")
+    monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
+
+    svc = MemoryService(_OkStore(), _OkStore(), AuditStore({"sqlite_path": ":memory:"}))
+    h = await svc.health_check()
+    assert h["status"] == "fail"
+    assert h["dependencies"]["llm_provider"]["status"] == "fail"
+    assert h["dependencies"]["llm_provider"]["auth"]["error"] == "API_KEY_MISSING"
+
+
+@pytest.mark.anyio
+async def test_health_check_openai_requires_api_key_even_with_base_url(monkeypatch, tmp_path) -> None:
+    from modules.memory.application.service import MemoryService
+    from modules.memory.infra.audit_store import AuditStore
+
+    import shutil
+    import os
+    from collections import namedtuple
+
+    Usage = namedtuple("Usage", ["total", "used", "free"])
+    monkeypatch.setattr(shutil, "disk_usage", lambda p: Usage(1000, 100, 900 * 1024 * 1024))
+    monkeypatch.setattr(os, "access", lambda p, mode: True)
+
+    monkeypatch.setenv("LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.com/v1")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "0")
+    monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
 
     svc = MemoryService(_OkStore(), _OkStore(), AuditStore({"sqlite_path": ":memory:"}))
     h = await svc.health_check()
@@ -125,6 +289,7 @@ async def test_health_check_fails_when_balance_low(monkeypatch, tmp_path) -> Non
     monkeypatch.setattr(os, "access", lambda p, m: True)
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("MEMORY_HEALTH_OPENROUTER_MIN_USD", "1.0")
     monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
 
@@ -161,6 +326,7 @@ async def test_health_check_handles_credits_api_failure(monkeypatch, tmp_path) -
     monkeypatch.setattr(os, "access", lambda p, m: True)
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
 
     svc = MemoryService(_OkStore(), _OkStore(), AuditStore({"sqlite_path": ":memory:"}))
@@ -194,6 +360,7 @@ async def test_health_check_fails_when_disk_inaccessible(monkeypatch) -> None:
             return _Resp(404)
     monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", "/root/protected")
 
     svc = MemoryService(_OkStore(), _OkStore(), AuditStore({"sqlite_path": ":memory:"}))
@@ -223,6 +390,7 @@ async def test_health_check_timestamp_format(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(shutil, "disk_usage", lambda p: Usage(1000, 100, 900*1024*1024))
     monkeypatch.setattr(os, "access", lambda p, m: True)
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
 
     svc = MemoryService(_OkStore(), _OkStore(), AuditStore({"sqlite_path": ":memory:"}))
@@ -253,6 +421,7 @@ async def test_health_http_returns_503_when_unhealthy(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(os, "access", lambda p, mode: True)
     monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)  # force unhealthy
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "0")
 
     srv._svc = MemoryService(_OkStore(), _OkStore(), AuditStore({"sqlite_path": ":memory:"}))
@@ -289,6 +458,7 @@ async def test_health_check_credits_api_failed(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(httpx, "AsyncClient", _FakeAsyncClient)
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-1234")
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "0")
     monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(tmp_path))
 
@@ -317,6 +487,7 @@ async def test_health_check_disk_path_not_accessible(monkeypatch, tmp_path) -> N
     missing_path = tmp_path / "missing"
     monkeypatch.setenv("MEMORY_HEALTH_DISK_PATH", str(missing_path))
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.setenv("MEMORY_HEALTH_LLM_CACHE_TTL_S", "0")
 
     svc = MemoryService(_OkStore(), _OkStore(), AuditStore({"sqlite_path": ":memory:"}))
